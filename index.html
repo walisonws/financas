@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#111111" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Finanças" />
+<title>Finanças do Casal</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:#111;--surface:#1c1c1e;--surface2:#2c2c2e;--border:rgba(255,255,255,0.08);
+  --text:#f5f5f7;--text2:#8e8e93;--text3:#636366;
+  --green:#30d158;--green-bg:rgba(48,209,88,0.12);
+  --red:#ff453a;--red-bg:rgba(255,69,58,0.12);
+  --blue:#0a84ff;--blue-bg:rgba(10,132,255,0.12);
+  --amber:#ffd60a;--amber-bg:rgba(255,214,10,0.12);
+  --pink:#ff375f;--radius:14px;--radius-sm:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overscroll-behavior:none;}
+#app{display:flex;flex-direction:column;height:100vh;height:100dvh;max-width:480px;margin:0 auto;}
+#content{flex:1;overflow-y:auto;padding:0 16px 100px;-webkit-overflow-scrolling:touch;}
+.header{padding:56px 16px 12px;display:flex;align-items:center;justify-content:space-between;}
+.header-title{font-size:28px;font-weight:700;letter-spacing:-0.5px;}
+.month-pill{background:var(--surface2);border-radius:20px;padding:6px 12px;font-size:13px;color:var(--text2);display:flex;align-items:center;gap:6px;}
+.month-pill button{background:none;border:none;color:var(--text2);font-size:18px;cursor:pointer;padding:0 2px;line-height:1;}
+.bottom-nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:rgba(17,17,17,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:0.5px solid var(--border);padding:8px 0 max(8px,env(safe-area-inset-bottom));display:flex;z-index:100;}
+.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;cursor:pointer;color:var(--text3);transition:color 0.15s;}
+.nav-item.active{color:var(--blue);}
+.nav-icon{font-size:22px;line-height:1;}
+.nav-label{font-size:10px;font-weight:500;}
+.section{display:none;}.section.active{display:block;}
+.card{background:var(--surface);border-radius:var(--radius);padding:16px;margin-bottom:12px;}
+.card-title{font-size:13px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;}
+.metrics-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;}
+.metric-wide{grid-column:span 2;}
+.metric{background:var(--surface);border-radius:var(--radius-sm);padding:14px;}
+.metric.green{background:var(--green-bg);}.metric.red{background:var(--red-bg);}.metric.blue{background:var(--blue-bg);}
+.metric-label{font-size:11px;color:var(--text2);margin-bottom:4px;font-weight:500;}
+.metric.green .metric-label{color:var(--green);}.metric.red .metric-label{color:var(--red);}.metric.blue .metric-label{color:var(--blue);}
+.metric-value{font-size:22px;font-weight:700;letter-spacing:-0.5px;}
+.metric.green .metric-value{color:var(--green);}.metric.red .metric-value{color:var(--red);}.metric.blue .metric-value{color:var(--blue);}
+.progress-track{background:rgba(255,255,255,0.08);border-radius:4px;height:5px;overflow:hidden;margin-top:10px;}
+.progress-fill{height:100%;border-radius:4px;transition:width 0.4s ease;}
+.progress-label{font-size:11px;color:var(--text3);margin-top:4px;}
+.ganho-input-row{display:flex;gap:8px;margin-bottom:10px;}
+.ganho-input-row input{flex:1;background:var(--surface2);border:none;border-radius:var(--radius-sm);padding:12px 14px;font-size:16px;color:var(--text);outline:none;}
+.ganho-input-row input::placeholder{color:var(--text3);}
+.ganho-btn{background:var(--green);color:#000;border:none;border-radius:var(--radius-sm);padding:12px 16px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;}
+.list-item{display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:0.5px solid var(--border);}
+.list-item:last-child{border-bottom:none;}
+.list-item-left{flex:1;}
+.list-item-name{font-size:15px;color:var(--text);}
+.list-item-right{display:flex;align-items:center;gap:10px;}
+.amount-out{font-size:15px;font-weight:600;color:var(--red);}
+.amount-in{font-size:15px;font-weight:600;color:var(--green);}
+.del-btn{background:rgba(255,69,58,0.15);border:none;color:var(--red);border-radius:8px;width:28px;height:28px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.badge{display:inline-block;font-size:10px;font-weight:600;padding:2px 7px;border-radius:6px;margin-top:2px;}
+.badge-fixo{background:var(--blue-bg);color:var(--blue);}
+.badge-extra{background:var(--amber-bg);color:var(--amber);}
+.badge-parcela{background:var(--red-bg);color:var(--red);}
+.add-row{display:flex;gap:8px;margin-top:10px;padding-top:10px;border-top:0.5px solid var(--border);}
+.add-row input{flex:1;background:var(--surface2);border:none;border-radius:var(--radius-sm);padding:10px 12px;font-size:14px;color:var(--text);outline:none;min-width:0;}
+.add-row input::placeholder{color:var(--text3);}
+.add-row .add-btn{background:var(--surface2);border:none;color:var(--blue);border-radius:var(--radius-sm);padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
+.chart-wrap{position:relative;height:180px;margin-top:4px;}
+.empty{font-size:14px;color:var(--text3);padding:12px 0;text-align:center;}
+.casal-split{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;}
+.person-card{background:var(--surface);border-radius:var(--radius);padding:14px;}
+.person-avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;margin-bottom:10px;}
+.avatar-w{background:var(--blue-bg);color:var(--blue);}
+.avatar-l{background:rgba(255,55,95,0.15);color:var(--pink);}
+.person-name{font-size:13px;font-weight:600;color:var(--text2);margin-bottom:8px;}
+.person-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;}
+.person-row-label{font-size:12px;color:var(--text3);}
+.person-row-val{font-size:13px;font-weight:600;}
+.total-row{display:flex;justify-content:space-between;align-items:center;padding-top:10px;margin-top:6px;border-top:0.5px solid var(--border);}
+.total-label{font-size:13px;font-weight:600;color:var(--text2);}
+.total-value{font-size:16px;font-weight:700;}
+.hist-card{background:var(--surface);border-radius:var(--radius);padding:16px;margin-bottom:10px;}
+.hist-month{font-size:15px;font-weight:700;margin-bottom:10px;}
+.hist-row{display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:0.5px solid var(--border);}
+.hist-row:last-child{border-bottom:none;}
+.hist-label{color:var(--text2);}
+.save-month-btn{width:100%;background:var(--surface2);border:none;color:var(--blue);border-radius:var(--radius-sm);padding:14px;font-size:15px;font-weight:600;cursor:pointer;margin-top:4px;}
+</style>
+</head>
+<body>
+<div id="app">
+<div id="content">
+  <div class="section active" id="sec-walisson">
+    <div class="header">
+      <div class="header-title">Walisson</div>
+      <div class="month-pill">
+        <button onclick="changeMonth('walisson',-1)">‹</button>
+        <span id="month-walisson"></span>
+        <button onclick="changeMonth('walisson',1)">›</button>
+      </div>
+    </div>
+    <div class="metrics-grid">
+      <div class="metric green"><div class="metric-label">GANHOS</div><div class="metric-value" id="w-ganho-total">R$ 0</div></div>
+      <div class="metric red"><div class="metric-label">GASTOS</div><div class="metric-value" id="w-gasto-total">R$ 0</div></div>
+      <div class="metric blue metric-wide"><div class="metric-label">SALDO</div><div class="metric-value" id="w-saldo">R$ 0</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Lançar ganho do dia</div>
+      <div class="ganho-input-row">
+        <input type="number" id="w-ganho-input" inputmode="decimal" placeholder="Quanto você ganhou hoje?" />
+        <button class="ganho-btn" onclick="addGanho('walisson')">+ Lançar</button>
+      </div>
+      <div id="w-ganhos-list"></div>
+      <div class="progress-track"><div class="progress-fill" id="w-ganho-bar" style="width:0%;background:var(--green)"></div></div>
+      <div class="progress-label" id="w-ganho-pct">0% da meta (R$ 6.500)</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Gastos do dia</div>
+      <div id="w-extras-list"></div>
+      <div class="add-row">
+        <input type="text" id="w-extra-desc" placeholder="O que foi? (espetinho, café...)" />
+        <input type="number" id="w-extra-val" inputmode="decimal" placeholder="R$" style="max-width:80px;" />
+        <button class="add-btn" onclick="addExtra('walisson')">+ Add</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Contas fixas</div>
+      <div id="w-fixos-list"></div>
+      <div class="add-row">
+        <input type="text" id="w-fixo-desc" placeholder="Nome da conta" />
+        <input type="number" id="w-fixo-val" inputmode="decimal" placeholder="R$" style="max-width:80px;" />
+        <button class="add-btn" onclick="addFixo('walisson')">+ Add</button>
+      </div>
+    </div>
+    <div class="card"><div class="card-title">Gastos por categoria</div><div class="chart-wrap"><canvas id="w-chart-cat"></canvas></div></div>
+    <div class="card"><div class="card-title">Evolução dos ganhos</div><div class="chart-wrap"><canvas id="w-chart-ganhos"></canvas></div></div>
+  </div>
+
+  <div class="section" id="sec-leidiane">
+    <div class="header">
+      <div class="header-title">Leidiane</div>
+      <div class="month-pill">
+        <button onclick="changeMonth('leidiane',-1)">‹</button>
+        <span id="month-leidiane"></span>
+        <button onclick="changeMonth('leidiane',1)">›</button>
+      </div>
+    </div>
+    <div class="metrics-grid">
+      <div class="metric green"><div class="metric-label">GANHOS</div><div class="metric-value" id="l-ganho-total">R$ 0</div></div>
+      <div class="metric red"><div class="metric-label">GASTOS</div><div class="metric-value" id="l-gasto-total">R$ 0</div></div>
+      <div class="metric blue metric-wide"><div class="metric-label">SALDO</div><div class="metric-value" id="l-saldo">R$ 0</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Lançar ganho do dia</div>
+      <div class="ganho-input-row">
+        <input type="number" id="l-ganho-input" inputmode="decimal" placeholder="Quanto você ganhou hoje?" />
+        <button class="ganho-btn" onclick="addGanho('leidiane')">+ Lançar</button>
+      </div>
+      <div id="l-ganhos-list"></div>
+      <div class="progress-track"><div class="progress-fill" id="l-ganho-bar" style="width:0%;background:var(--green)"></div></div>
+      <div class="progress-label" id="l-ganho-pct">0% da meta (R$ 6.500)</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Gastos do dia</div>
+      <div id="l-extras-list"></div>
+      <div class="add-row">
+        <input type="text" id="l-extra-desc" placeholder="O que foi? (espetinho, café...)" />
+        <input type="number" id="l-extra-val" inputmode="decimal" placeholder="R$" style="max-width:80px;" />
+        <button class="add-btn" onclick="addExtra('leidiane')">+ Add</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Contas fixas</div>
+      <div id="l-fixos-list"></div>
+      <div class="add-row">
+        <input type="text" id="l-fixo-desc" placeholder="Nome da conta" />
+        <input type="number" id="l-fixo-val" inputmode="decimal" placeholder="R$" style="max-width:80px;" />
+        <button class="add-btn" onclick="addFixo('leidiane')">+ Add</button>
+      </div>
+    </div>
+    <div class="card"><div class="card-title">Gastos por categoria</div><div class="chart-wrap"><canvas id="l-chart-cat"></canvas></div></div>
+    <div class="card"><div class="card-title">Evolução dos ganhos</div><div class="chart-wrap"><canvas id="l-chart-ganhos"></canvas></div></div>
+  </div>
+
+  <div class="section" id="sec-casal">
+    <div class="header"><div class="header-title">Casal</div></div>
+    <div class="casal-split">
+      <div class="person-card">
+        <div class="person-avatar avatar-w">W</div>
+        <div class="person-name">Walisson</div>
+        <div class="person-row"><span class="person-row-label">Ganhos</span><span class="person-row-val" style="color:var(--green)" id="c-w-ganho">R$ 0</span></div>
+        <div class="person-row"><span class="person-row-label">Gastos</span><span class="person-row-val" style="color:var(--red)" id="c-w-gasto">R$ 0</span></div>
+        <div class="person-row"><span class="person-row-label">Saldo</span><span class="person-row-val" style="color:var(--blue)" id="c-w-saldo">R$ 0</span></div>
+      </div>
+      <div class="person-card">
+        <div class="person-avatar avatar-l">L</div>
+        <div class="person-name">Leidiane</div>
+        <div class="person-row"><span class="person-row-label">Ganhos</span><span class="person-row-val" style="color:var(--green)" id="c-l-ganho">R$ 0</span></div>
+        <div class="person-row"><span class="person-row-label">Gastos</span><span class="person-row-val" style="color:var(--red)" id="c-l-gasto">R$ 0</span></div>
+        <div class="person-row"><span class="person-row-label">Saldo</span><span class="person-row-val" style="color:var(--blue)" id="c-l-saldo">R$ 0</span></div>
+      </div>
+    </div>
+    <div class="metrics-grid">
+      <div class="metric green"><div class="metric-label">RENDA TOTAL</div><div class="metric-value" id="c-ganho">R$ 0</div></div>
+      <div class="metric red"><div class="metric-label">TOTAL GASTO</div><div class="metric-value" id="c-gasto">R$ 0</div></div>
+      <div class="metric blue metric-wide"><div class="metric-label">SALDO DO CASAL</div><div class="metric-value" id="c-saldo">R$ 0</div></div>
+    </div>
+    <div class="card"><div class="card-title">Comparativo do casal</div><div class="chart-wrap"><canvas id="c-chart"></canvas></div></div>
+    <div class="card">
+      <div class="card-title">Contas compartilhadas</div>
+      <div id="casal-fixos-list"></div>
+      <div class="add-row">
+        <input type="text" id="cf-desc" placeholder="Nome da conta" />
+        <input type="number" id="cf-val" inputmode="decimal" placeholder="R$" style="max-width:80px;" />
+        <button class="add-btn" onclick="addCasalFixo()">+ Add</button>
+      </div>
+      <div class="total-row"><span class="total-label">Total fixo/mês</span><span class="total-value" style="color:var(--red)" id="casal-fixo-total">R$ 0</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Dívidas — construção da casa</div>
+      <div id="dividas-list"></div>
+      <div class="add-row">
+        <input type="text" id="div-desc" placeholder="Nome da dívida" />
+        <input type="number" id="div-val" inputmode="decimal" placeholder="R$/mês" style="max-width:80px;" />
+        <button class="add-btn" onclick="addDivida()">+ Add</button>
+      </div>
+      <div class="total-row"><span class="total-label">Total dívidas/mês</span><span class="total-value" style="color:var(--red)" id="dividas-total">R$ 0</span></div>
+    </div>
+    <button class="save-month-btn" onclick="saveMonth()">💾 Fechar mês e salvar no histórico</button>
+  </div>
+
+  <div class="section" id="sec-historico">
+    <div class="header"><div class="header-title">Histórico</div></div>
+    <div class="card"><div class="card-title">Comparativo mensal</div><div class="chart-wrap" style="height:200px"><canvas id="hist-chart"></canvas></div></div>
+    <div id="hist-list"><div class="empty" style="padding:20px">Nenhum mês salvo ainda.<br>Use o botão na aba Casal para fechar o mês.</div></div>
+  </div>
+</div>
+
+<div class="bottom-nav">
+  <div class="nav-item active" onclick="showSection('walisson',0)"><div class="nav-icon">✂️</div><div class="nav-label">Walisson</div></div>
+  <div class="nav-item" onclick="showSection('leidiane',1)"><div class="nav-icon">💄</div><div class="nav-label">Leidiane</div></div>
+  <div class="nav-item" onclick="showSection('casal',2)"><div class="nav-icon">🏠</div><div class="nav-label">Casal</div></div>
+  <div class="nav-item" onclick="showSection('historico',3)"><div class="nav-icon">📊</div><div class="nav-label">Histórico</div></div>
+</div>
+</div>
+<script>
+const MESES=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const now=new Date();const KEY='financas_v2';const charts={};
+function defaultState(){return{walisson:{monthOffset:0,ganhos:[],extras:[],fixos:[{nome:'Aluguel barbearia',valor:500}]},leidiane:{monthOffset:0,ganhos:[],extras:[],fixos:[{nome:'Aluguel sobrancelha',valor:300}]},casal:{fixos:[{nome:'Financiamento carro',valor:1500},{nome:'Plano de saúde',valor:500},{nome:'Energia',valor:300},{nome:'Internet (2x)',valor:240},{nome:'Empréstimo amigo (2/10)',valor:550},{nome:'Gasolina',valor:225},{nome:'Compras do mês',valor:800}]},dividas:[{nome:'Material construção 1',valor:500},{nome:'Material construção 2',valor:500},{nome:'Material construção 3',valor:500}],historico:[]};}
+function loadState(){try{const s=localStorage.getItem(KEY);return s?JSON.parse(s):defaultState();}catch(e){return defaultState();}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){}}
+const state=loadState();
+function fmt(n){return'R$ '+Math.round(n).toLocaleString('pt-BR');}
+function getML(o){const d=new Date(now.getFullYear(),now.getMonth()+o,1);return MESES[d.getMonth()]+' '+d.getFullYear();}
+function today(){const d=new Date();return d.getDate()+'/'+(d.getMonth()+1);}
+function showSection(name,idx){document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));document.getElementById('sec-'+name).classList.add('active');document.querySelectorAll('.nav-item')[idx].classList.add('active');if(name==='casal')updateCasal();if(name==='historico')renderHistorico();}
+function changeMonth(who,dir){state[who].monthOffset+=dir;save();renderPerfil(who);}
+function mkBar(id,labels,datasets){if(charts[id])charts[id].destroy();const ctx=document.getElementById(id);if(!ctx)return;charts[id]=new Chart(ctx,{type:'bar',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'rgba(255,255,255,0.7)',font:{size:11},boxWidth:12}}},scales:{x:{ticks:{color:'rgba(255,255,255,0.7)',font:{size:11}},grid:{color:'rgba(255,255,255,0.06)'}},y:{ticks:{color:'rgba(255,255,255,0.7)',font:{size:11},callback:v=>'R$'+Number(v).toLocaleString('pt-BR')},grid:{color:'rgba(255,255,255,0.06)'}}}}});}
+function mkDoughnut(id,labels,data,colors){if(charts[id])charts[id].destroy();const ctx=document.getElementById(id);if(!ctx)return;charts[id]=new Chart(ctx,{type:'doughnut',data:{labels,datasets:[{data,backgroundColor:colors,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'rgba(255,255,255,0.7)',font:{size:11},boxWidth:12}}}}});}
+function addGanho(who){const p=who==='walisson'?'w':'l';const inp=document.getElementById(p+'-ganho-input');const val=parseFloat(inp.value);if(!val||val<=0)return;state[who].ganhos.push({desc:'Dia '+today(),valor:val});inp.value='';save();renderPerfil(who);}
+function addExtra(who){const p=who==='walisson'?'w':'l';const desc=document.getElementById(p+'-extra-desc').value.trim();const val=parseFloat(document.getElementById(p+'-extra-val').value);if(!desc||!val||val<=0)return;state[who].extras.push({nome:desc,valor:val});document.getElementById(p+'-extra-desc').value='';document.getElementById(p+'-extra-val').value='';save();renderPerfil(who);}
+function addFixo(who){const p=who==='walisson'?'w':'l';const desc=document.getElementById(p+'-fixo-desc').value.trim();const val=parseFloat(document.getElementById(p+'-fixo-val').value);if(!desc||!val||val<=0)return;state[who].fixos.push({nome:desc,valor:val});document.getElementById(p+'-fixo-desc').value='';document.getElementById(p+'-fixo-val').value='';save();renderPerfil(who);}
+function delItem(who,tipo,idx){state[who][tipo].splice(idx,1);save();renderPerfil(who);}
+function renderPerfil(who){const s=state[who];const p=who==='walisson'?'w':'l';document.getElementById('month-'+who).textContent=getML(s.monthOffset);const gT=s.ganhos.reduce((a,b)=>a+b.valor,0);const fT=s.fixos.reduce((a,b)=>a+b.valor,0);const eT=s.extras.reduce((a,b)=>a+b.valor,0);const gastoT=fT+eT;const pct=Math.min(100,Math.round(gT/6500*100));document.getElementById(p+'-ganho-total').textContent=fmt(gT);document.getElementById(p+'-gasto-total').textContent=fmt(gastoT);document.getElementById(p+'-saldo').textContent=fmt(gT-gastoT);document.getElementById(p+'-ganho-bar').style.width=pct+'%';document.getElementById(p+'-ganho-pct').textContent=pct+'% da meta (R$ 6.500)';const gl=document.getElementById(p+'-ganhos-list');gl.innerHTML=s.ganhos.length===0?'<div class="empty">Nenhum ganho lançado ainda</div>':s.ganhos.map((g,i)=>`<div class="list-item"><div class="list-item-left"><div class="list-item-name">${g.desc}</div></div><div class="list-item-right"><span class="amount-in">${fmt(g.valor)}</span><button class="del-btn" onclick="delItem('${who}','ganhos',${i})">×</button></div></div>`).join('');const el=document.getElementById(p+'-extras-list');el.innerHTML=s.extras.length===0?'<div class="empty">Nenhum gasto lançado</div>':s.extras.map((e,i)=>`<div class="list-item"><div class="list-item-left"><div class="list-item-name">${e.nome}</div><span class="badge badge-extra">extra</span></div><div class="list-item-right"><span class="amount-out">${fmt(e.valor)}</span><button class="del-btn" onclick="delItem('${who}','extras',${i})">×</button></div></div>`).join('');const fl=document.getElementById(p+'-fixos-list');fl.innerHTML=s.fixos.length===0?'<div class="empty">Nenhuma conta fixa</div>':s.fixos.map((f,i)=>`<div class="list-item"><div class="list-item-left"><div class="list-item-name">${f.nome}</div><span class="badge badge-fixo">fixo</span></div><div class="list-item-right"><span class="amount-out">${fmt(f.valor)}</span><button class="del-btn" onclick="delItem('${who}','fixos',${i})">×</button></div></div>`).join('');mkDoughnut(p+'-chart-cat',['Contas fixas','Gastos do dia'],[fT,eT],['#0a84ff','#ffd60a']);mkBar(p+'-chart-ganhos',s.ganhos.length?s.ganhos.map(g=>g.desc):['—'],[{label:'Ganhos',data:s.ganhos.length?s.ganhos.map(g=>g.valor):[0],backgroundColor:'rgba(48,209,88,0.7)',borderRadius:6}]);updateCasal();}
+function addCasalFixo(){const desc=document.getElementById('cf-desc').value.trim();const val=parseFloat(document.getElementById('cf-val').value);if(!desc||!val||val<=0)return;state.casal.fixos.push({nome:desc,valor:val});document.getElementById('cf-desc').value='';document.getElementById('cf-val').value='';save();updateCasal();}
+function addDivida(){const desc=document.getElementById('div-desc').value.trim();const val=parseFloat(document.getElementById('div-val').value);if(!desc||!val||val<=0)return;state.dividas.push({nome:desc,valor:val});document.getElementById('div-desc').value='';document.getElementById('div-val').value='';save();updateCasal();}
+function delCasalFixo(idx){state.casal.fixos.splice(idx,1);save();updateCasal();}
+function delDivida(idx){state.dividas.splice(idx,1);save();updateCasal();}
+function updateCasal(){const wG=state.walisson.ganhos.reduce((a,b)=>a+b.valor,0);const wGasto=state.walisson.fixos.reduce((a,b)=>a+b.valor,0)+state.walisson.extras.reduce((a,b)=>a+b.valor,0);const lG=state.leidiane.ganhos.reduce((a,b)=>a+b.valor,0);const lGasto=state.leidiane.fixos.reduce((a,b)=>a+b.valor,0)+state.leidiane.extras.reduce((a,b)=>a+b.valor,0);const cF=state.casal.fixos.reduce((a,b)=>a+b.valor,0);const cD=state.dividas.reduce((a,b)=>a+b.valor,0);const tG=wG+lG;const tGasto=wGasto+lGasto+cF+cD;document.getElementById('c-w-ganho').textContent=fmt(wG);document.getElementById('c-w-gasto').textContent=fmt(wGasto);document.getElementById('c-w-saldo').textContent=fmt(wG-wGasto);document.getElementById('c-l-ganho').textContent=fmt(lG);document.getElementById('c-l-gasto').textContent=fmt(lGasto);document.getElementById('c-l-saldo').textContent=fmt(lG-lGasto);document.getElementById('c-ganho').textContent=fmt(tG);document.getElementById('c-gasto').textContent=fmt(tGasto);document.getElementById('c-saldo').textContent=fmt(tG-tGasto);const cfl=document.getElementById('casal-fixos-list');cfl.innerHTML=state.casal.fixos.map((f,i)=>`<div class="list-item"><div class="list-item-left"><div class="list-item-name">${f.nome}</div><span class="badge badge-fixo">fixo</span></div><div class="list-item-right"><span class="amount-out">${fmt(f.valor)}</span><button class="del-btn" onclick="delCasalFixo(${i})">×</button></div></div>`).join('');document.getElementById('casal-fixo-total').textContent=fmt(cF);const dl=document.getElementById('dividas-list');dl.innerHTML=state.dividas.map((d,i)=>`<div class="list-item"><div class="list-item-left"><div class="list-item-name">${d.nome}</div><span class="badge badge-parcela">parcela</span></div><div class="list-item-right"><span class="amount-out">${fmt(d.valor)}/mês</span><button class="del-btn" onclick="delDivida(${i})">×</button></div></div>`).join('');document.getElementById('dividas-total').textContent=fmt(cD);mkBar('c-chart',['Walisson','Leidiane'],[{label:'Ganhos',data:[wG,lG],backgroundColor:'rgba(48,209,88,0.7)',borderRadius:6},{label:'Gastos',data:[wGasto,lGasto],backgroundColor:'rgba(255,69,58,0.7)',borderRadius:6}]);}
+function saveMonth(){const wG=state.walisson.ganhos.reduce((a,b)=>a+b.valor,0);const wGasto=state.walisson.fixos.reduce((a,b)=>a+b.valor,0)+state.walisson.extras.reduce((a,b)=>a+b.valor,0);const lG=state.leidiane.ganhos.reduce((a,b)=>a+b.valor,0);const lGasto=state.leidiane.fixos.reduce((a,b)=>a+b.valor,0)+state.leidiane.extras.reduce((a,b)=>a+b.valor,0);const cF=state.casal.fixos.reduce((a,b)=>a+b.valor,0);const cD=state.dividas.reduce((a,b)=>a+b.valor,0);state.historico.unshift({mes:getML(0),wGanho:wG,wGasto,lGanho:lG,lGasto,casalFixo:cF,casalDivida:cD,totalGanho:wG+lG,totalGasto:wGasto+lGasto+cF+cD,saldo:(wG+lG)-(wGasto+lGasto+cF+cD)});state.walisson.ganhos=[];state.walisson.extras=[];state.leidiane.ganhos=[];state.leidiane.extras=[];save();alert('Mês salvo! Ganhos e gastos do dia foram resetados. 🎉');renderPerfil('walisson');renderPerfil('leidiane');updateCasal();}
+function renderHistorico(){const hist=state.historico;const listEl=document.getElementById('hist-list');if(hist.length===0){listEl.innerHTML='<div class="empty" style="padding:20px">Nenhum mês salvo ainda.</div>';if(charts['hist-chart'])charts['hist-chart'].destroy();return;}mkBar('hist-chart',hist.map(h=>h.mes).reverse(),[{label:'Renda',data:hist.map(h=>h.totalGanho).reverse(),backgroundColor:'rgba(48,209,88,0.7)',borderRadius:4},{label:'Gastos',data:hist.map(h=>h.totalGasto).reverse(),backgroundColor:'rgba(255,69,58,0.7)',borderRadius:4},{label:'Saldo',data:hist.map(h=>h.saldo).reverse(),backgroundColor:'rgba(10,132,255,0.7)',borderRadius:4}]);listEl.innerHTML=hist.map(h=>`<div class="hist-card"><div class="hist-month">${h.mes}</div><div class="hist-row"><span class="hist-label">Renda total</span><span style="color:var(--green);font-weight:600">${fmt(h.totalGanho)}</span></div><div class="hist-row"><span class="hist-label">↳ Walisson</span><span style="color:var(--green)">${fmt(h.wGanho)}</span></div><div class="hist-row"><span class="hist-label">↳ Leidiane</span><span style="color:var(--green)">${fmt(h.lGanho)}</span></div><div class="hist-row"><span class="hist-label">Total gastos</span><span style="color:var(--red);font-weight:600">${fmt(h.totalGasto)}</span></div><div class="hist-row"><span class="hist-label">↳ Fixos casal</span><span style="color:var(--red)">${fmt(h.casalFixo)}</span></div><div class="hist-row"><span class="hist-label">↳ Dívidas</span><span style="color:var(--red)">${fmt(h.casalDivida)}</span></div><div class="hist-row"><span class="hist-label">↳ Gastos Walisson</span><span style="color:var(--red)">${fmt(h.wGasto)}</span></div><div class="hist-row"><span class="hist-label">↳ Gastos Leidiane</span><span style="color:var(--red)">${fmt(h.lGasto)}</span></div><div class="hist-row"><span class="hist-label" style="font-weight:700;color:var(--text)">Saldo final</span><span style="color:${h.saldo>=0?'var(--green)':'var(--red)'};font-weight:700;font-size:16px">${fmt(h.saldo)}</span></div></div>`).join('');}
+document.getElementById('month-walisson').textContent=getML(0);
+document.getElementById('month-leidiane').textContent=getML(0);
+renderPerfil('walisson');renderPerfil('leidiane');updateCasal();
+</script>
+</body>
+</html>
