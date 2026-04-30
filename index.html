@@ -3,15 +3,17 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
-<meta name="theme-color" content="#111111"/>
+<meta name="theme-color" content="#0a0a0f"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-<meta name="apple-mobile-web-app-title" content="Finanças"/>
-<title>Finanças do Casal</title>
+<meta name="apple-mobile-web-app-title" content="Grana"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<title>Grana — Controle Financeiro</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getDatabase, ref, set, onValue, push, remove, get } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
+import { getDatabase, ref, set, onValue, push, remove, get, update } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyCfB9cUJ5uQSrYsrglJ4yC-QtorFKCj4UI",
@@ -25,307 +27,908 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
+
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const now = new Date();
 const charts = {};
-let casalCode = null;
+let grupoCode = null;
 let meuPerfil = null;
+let meuNome = null;
+let modoApp = null; // 'solo', 'grupo'
+let membros = [];
 
-function fmt(n){return 'R$ '+Math.round(n||0).toLocaleString('pt-BR');}
-function getML(o){const d=new Date(now.getFullYear(),now.getMonth()+o,1);return MESES[d.getMonth()]+' '+d.getFullYear();}
+// ── UTILS ──────────────────────────────────────────────────────────────────
+function fmt(n){return 'R$ '+Math.abs(Math.round(n||0)).toLocaleString('pt-BR');}
+function fmtSigned(n){const v=Math.round(n||0);return (v<0?'- ':'')+'R$ '+Math.abs(v).toLocaleString('pt-BR');}
+function getML(){return MESES[now.getMonth()]+' '+now.getFullYear();}
 function today(){const d=new Date();return d.getDate()+'/'+(d.getMonth()+1);}
 function gerarCodigo(){return Math.random().toString(36).substring(2,8).toUpperCase();}
-
-function showVinculacao(){
-  document.getElementById('app').style.display='none';
-  document.getElementById('tela-vinculacao').style.display='flex';
-  const saved=localStorage.getItem('financas_casal_code');
-  const savedPerfil=localStorage.getItem('financas_meu_perfil');
-  if(saved&&savedPerfil){casalCode=saved;meuPerfil=savedPerfil;iniciarApp();}
+function showToast(msg,type='success'){
+  const t=document.createElement('div');
+  t.className='toast toast-'+type;t.textContent=msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.classList.add('show'),10);
+  setTimeout(()=>{t.classList.remove('show');setTimeout(()=>t.remove(),300)},2500);
 }
 
-window.criarCasal = async function(){
-  const nome=document.getElementById('input-nome').value.trim();
-  if(!nome){alert('Digite seu nome!');return;}
-  meuPerfil=nome.toLowerCase().includes('lei')?'leidiane':'walisson';
-  casalCode=gerarCodigo();
-  await set(ref(db,`casais/${casalCode}/info`),{criado:Date.now(),codigo:casalCode});
-  await set(ref(db,`casais/${casalCode}/${meuPerfil}/info`),{nome,entrou:Date.now()});
-  await set(ref(db,`casais/${casalCode}/casal/fixos`),{f1:{nome:'Financiamento carro',valor:1500},f2:{nome:'Plano de saúde',valor:500},f3:{nome:'Energia',valor:300},f4:{nome:'Internet (2x)',valor:240},f5:{nome:'Empréstimo amigo (2/10)',valor:550},f6:{nome:'Gasolina',valor:225},f7:{nome:'Compras do mês',valor:800}});
-  await set(ref(db,`casais/${casalCode}/dividas`),{d1:{nome:'Material construção 1',valor:500},d2:{nome:'Material construção 2',valor:500},d3:{nome:'Material construção 3',valor:500}});
-  await set(ref(db,`casais/${casalCode}/${meuPerfil}/fixos`),{f1:{nome:meuPerfil==='walisson'?'Aluguel barbearia':'Aluguel sobrancelha',valor:meuPerfil==='walisson'?500:300}});
-  localStorage.setItem('financas_casal_code',casalCode);
-  localStorage.setItem('financas_meu_perfil',meuPerfil);
-  document.getElementById('codigo-gerado').textContent=casalCode;
-  document.getElementById('box-codigo').style.display='block';
-  document.getElementById('btn-entrar-codigo').style.display='block';
+// ── TELA INICIAL ───────────────────────────────────────────────────────────
+function init(){
+  const code=localStorage.getItem('grana_code');
+  const perfil=localStorage.getItem('grana_perfil');
+  const nome=localStorage.getItem('grana_nome');
+  const modo=localStorage.getItem('grana_modo');
+  if(code&&perfil&&nome&&modo){
+    grupoCode=code;meuPerfil=perfil;meuNome=nome;modoApp=modo;
+    iniciarApp();
+  } else {
+    showScreen('tela-boas-vindas');
+  }
 }
 
-window.vincularCasal = async function(){
-  const nome=document.getElementById('input-nome-vincular').value.trim();
-  const codigo=document.getElementById('input-codigo').value.trim().toUpperCase();
-  if(!nome||!codigo){alert('Preencha seu nome e o código!');return;}
-  const snap=await get(ref(db,`casais/${codigo}/info`));
-  if(!snap.exists()){alert('Código não encontrado!');return;}
-  meuPerfil=nome.toLowerCase().includes('lei')?'leidiane':'walisson';
-  casalCode=codigo;
-  await set(ref(db,`casais/${casalCode}/${meuPerfil}/info`),{nome,entrou:Date.now()});
-  const fixoSnap=await get(ref(db,`casais/${casalCode}/${meuPerfil}/fixos`));
-  if(!fixoSnap.exists()) await set(ref(db,`casais/${casalCode}/${meuPerfil}/fixos`),{f1:{nome:meuPerfil==='walisson'?'Aluguel barbearia':'Aluguel sobrancelha',valor:meuPerfil==='walisson'?500:300}});
-  localStorage.setItem('financas_casal_code',casalCode);
-  localStorage.setItem('financas_meu_perfil',meuPerfil);
+window.selecionarModo = function(modo){
+  modoApp=modo;
+  showScreen('tela-cadastro');
+  document.getElementById('subtitulo-cadastro').textContent = modo==='solo'
+    ? 'Crie sua conta pessoal' : 'Crie ou entre em um grupo';
+  document.getElementById('box-codigo-grupo').style.display = modo==='solo' ? 'none' : 'block';
+  document.getElementById('box-criar-grupo').style.display = modo==='solo' ? 'none' : 'block';
+}
+
+window.entrarSolo = async function(){
+  const nome=document.getElementById('inp-nome').value.trim();
+  if(!nome){showToast('Digite seu nome!','error');return;}
+  meuNome=nome;
+  grupoCode='solo_'+gerarCodigo();
+  meuPerfil='p1';
+  await set(ref(db,`grupos/${grupoCode}/info`),{modo:'solo',criado:Date.now()});
+  await set(ref(db,`grupos/${grupoCode}/membros/p1`),{nome,cor:'#6c63ff',ts:Date.now()});
+  salvarLocal();
   iniciarApp();
 }
 
-window.entrarComCodigo = function(){iniciarApp();}
+window.criarGrupo = async function(){
+  const nome=document.getElementById('inp-nome').value.trim();
+  if(!nome){showToast('Digite seu nome!','error');return;}
+  meuNome=nome;
+  grupoCode=gerarCodigo();
+  meuPerfil='p1';
+  const cores=['#6c63ff','#f97316','#10b981','#ec4899','#3b82f6','#f59e0b'];
+  await set(ref(db,`grupos/${grupoCode}/info`),{modo:'grupo',criado:Date.now()});
+  await set(ref(db,`grupos/${grupoCode}/membros/p1`),{nome,cor:cores[0],ts:Date.now()});
+  salvarLocal();
+  document.getElementById('codigo-gerado').textContent=grupoCode;
+  document.getElementById('box-codigo-exibido').style.display='block';
+  document.getElementById('btn-entrar-app').style.display='block';
+}
 
+window.entrarGrupo = async function(){
+  const nome=document.getElementById('inp-nome').value.trim();
+  const codigo=document.getElementById('inp-codigo').value.trim().toUpperCase();
+  if(!nome||!codigo){showToast('Preencha nome e código!','error');return;}
+  const snap=await get(ref(db,`grupos/${codigo}/info`));
+  if(!snap.exists()){showToast('Código não encontrado!','error');return;}
+  const membrosSnap=await get(ref(db,`grupos/${codigo}/membros`));
+  const membrosAtuais=membrosSnap.val()||{};
+  const qtd=Object.keys(membrosAtuais).length;
+  const cores=['#6c63ff','#f97316','#10b981','#ec4899','#3b82f6','#f59e0b'];
+  const novoId='p'+(qtd+1);
+  grupoCode=codigo;meuPerfil=novoId;meuNome=nome;
+  await set(ref(db,`grupos/${codigo}/membros/${novoId}`),{nome,cor:cores[qtd]||'#6c63ff',ts:Date.now()});
+  salvarLocal();
+  iniciarApp();
+}
+
+window.irParaApp = function(){iniciarApp();}
+
+function salvarLocal(){
+  localStorage.setItem('grana_code',grupoCode);
+  localStorage.setItem('grana_perfil',meuPerfil);
+  localStorage.setItem('grana_nome',meuNome);
+  localStorage.setItem('grana_modo',modoApp);
+}
+
+// ── INICIAR APP ────────────────────────────────────────────────────────────
 function iniciarApp(){
-  document.getElementById('tela-vinculacao').style.display='none';
-  document.getElementById('app').style.display='flex';
-  document.getElementById('meu-codigo-display').textContent='Código do casal: '+casalCode;
+  showScreen('app');
   escutarDados();
-  showSection(meuPerfil,meuPerfil==='walisson'?0:1);
 }
 
+// ── LISTENERS ──────────────────────────────────────────────────────────────
+let _dados = {};
 function escutarDados(){
-  ['walisson','leidiane'].forEach(who=>{
-    ['ganhos','extras','fixos'].forEach(tipo=>{
-      onValue(ref(db,`casais/${casalCode}/${who}/${tipo}`),snap=>{
-        window[`_${who[0]}_${tipo}`]=snap.val()?Object.entries(snap.val()).map(([k,v])=>({...v,_key:k})):[];
-        renderPerfil(who);
-      });
-    });
+  onValue(ref(db,`grupos/${grupoCode}/membros`),snap=>{
+    membros=snap.val()?Object.entries(snap.val()).map(([k,v])=>({...v,id:k})):[];
+    renderNavMembros();
   });
-  onValue(ref(db,`casais/${casalCode}/casal/fixos`),snap=>{window._casal_fixos=snap.val()?Object.entries(snap.val()).map(([k,v])=>({...v,_key:k})):[];updateCasal();});
-  onValue(ref(db,`casais/${casalCode}/dividas`),snap=>{window._dividas=snap.val()?Object.entries(snap.val()).map(([k,v])=>({...v,_key:k})):[];updateCasal();});
-  onValue(ref(db,`casais/${casalCode}/historico`),snap=>{window._historico=snap.val()?Object.values(snap.val()).sort((a,b)=>b.ts-a.ts):[];});
-  window._w_ganhos=[];window._w_extras=[];window._w_fixos=[];
-  window._l_ganhos=[];window._l_extras=[];window._l_fixos=[];
-  window._casal_fixos=[];window._dividas=[];window._historico=[];
+  onValue(ref(db,`grupos/${grupoCode}/ganhos`),snap=>{
+    _dados.ganhos=snap.val()?Object.entries(snap.val()).map(([k,v])=>({...v,_key:k})):[];
+    renderTudo();
+  });
+  onValue(ref(db,`grupos/${grupoCode}/gastos`),snap=>{
+    _dados.gastos=snap.val()?Object.entries(snap.val()).map(([k,v])=>({...v,_key:k})):[];
+    renderTudo();
+  });
+  onValue(ref(db,`grupos/${grupoCode}/fixos`),snap=>{
+    _dados.fixos=snap.val()?Object.entries(snap.val()).map(([k,v])=>({...v,_key:k})):[];
+    renderTudo();
+  });
+  onValue(ref(db,`grupos/${grupoCode}/historico`),snap=>{
+    _dados.historico=snap.val()?Object.values(snap.val()).sort((a,b)=>b.ts-a.ts):[];
+    if(document.getElementById('sec-historico').classList.contains('active'))renderHistorico();
+  });
+  _dados={ganhos:[],gastos:[],fixos:[],historico:[]};
 }
 
-window.showSection=function(name,idx){
+// ── NAV MEMBROS ─────────────────────────────────────────────────────────────
+let membroAtivo = null;
+function renderNavMembros(){
+  const nav=document.getElementById('nav-membros');
+  if(!nav)return;
+  const isSolo=modoApp==='solo';
+  if(isSolo){
+    nav.style.display='none';
+    membroAtivo=meuPerfil;
+    renderTudo();
+    return;
+  }
+  nav.style.display='flex';
+  nav.innerHTML=membros.map(m=>`
+    <div class="membro-tab ${m.id===membroAtivo?'active':''}" onclick="setMembroAtivo('${m.id}')" style="--cor:${m.cor}">
+      <div class="membro-avatar" style="background:${m.cor}20;color:${m.cor}">${m.nome[0].toUpperCase()}</div>
+      <span>${m.nome}</span>
+    </div>
+  `).join('');
+  if(!membroAtivo){membroAtivo=meuPerfil;}
+  renderTudo();
+}
+
+window.setMembroAtivo = function(id){
+  membroAtivo=id;
+  document.querySelectorAll('.membro-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll(`.membro-tab`).forEach(t=>{
+    if(t.getAttribute('onclick').includes(id))t.classList.add('active');
+  });
+  renderTudo();
+}
+
+// ── NAV ABAS ───────────────────────────────────────────────────────────────
+window.showSection = function(name,idx){
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(n=>n.classList.remove('active'));
   document.getElementById('sec-'+name).classList.add('active');
-  document.querySelectorAll('.nav-item')[idx].classList.add('active');
-  if(name==='casal')updateCasal();
+  document.querySelectorAll('.nav-btn')[idx].classList.add('active');
+  if(name==='resumo')renderResumo();
   if(name==='historico')renderHistorico();
+  if(name==='fixos')renderFixos();
 }
 
-window.addGanho=async function(who){const p=who==='walisson'?'w':'l';const inp=document.getElementById(p+'-ganho-input');const val=parseFloat(inp.value);if(!val||val<=0)return;await push(ref(db,`casais/${casalCode}/${who}/ganhos`),{desc:'Dia '+today(),valor:val,ts:Date.now()});inp.value='';}
-window.addExtra=async function(who){const p=who==='walisson'?'w':'l';const desc=document.getElementById(p+'-extra-desc').value.trim();const val=parseFloat(document.getElementById(p+'-extra-val').value);if(!desc||!val||val<=0)return;await push(ref(db,`casais/${casalCode}/${who}/extras`),{nome:desc,valor:val,ts:Date.now()});document.getElementById(p+'-extra-desc').value='';document.getElementById(p+'-extra-val').value='';}
-window.addFixo=async function(who){const p=who==='walisson'?'w':'l';const desc=document.getElementById(p+'-fixo-desc').value.trim();const val=parseFloat(document.getElementById(p+'-fixo-val').value);if(!desc||!val||val<=0)return;await push(ref(db,`casais/${casalCode}/${who}/fixos`),{nome:desc,valor:val});document.getElementById(p+'-fixo-desc').value='';document.getElementById(p+'-fixo-val').value='';}
-window.delItem=async function(who,tipo,key){await remove(ref(db,`casais/${casalCode}/${who}/${tipo}/${key}`));}
-window.addCasalFixo=async function(){const desc=document.getElementById('cf-desc').value.trim();const val=parseFloat(document.getElementById('cf-val').value);if(!desc||!val||val<=0)return;await push(ref(db,`casais/${casalCode}/casal/fixos`),{nome:desc,valor:val});document.getElementById('cf-desc').value='';document.getElementById('cf-val').value='';}
-window.addDivida=async function(){const desc=document.getElementById('div-desc').value.trim();const val=parseFloat(document.getElementById('div-val').value);if(!desc||!val||val<=0)return;await push(ref(db,`casais/${casalCode}/dividas`),{nome:desc,valor:val});document.getElementById('div-desc').value='';document.getElementById('div-val').value='';}
-window.delCasalFixo=async function(key){await remove(ref(db,`casais/${casalCode}/casal/fixos/${key}`));}
-window.delDivida=async function(key){await remove(ref(db,`casais/${casalCode}/dividas/${key}`));}
-
-function mkBar(id,labels,datasets){if(charts[id])charts[id].destroy();const ctx=document.getElementById(id);if(!ctx)return;charts[id]=new Chart(ctx,{type:'bar',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'rgba(255,255,255,0.7)',font:{size:11},boxWidth:12}}},scales:{x:{ticks:{color:'rgba(255,255,255,0.7)',font:{size:11}},grid:{color:'rgba(255,255,255,0.06)'}},y:{ticks:{color:'rgba(255,255,255,0.7)',font:{size:11},callback:v=>'R$'+Number(v).toLocaleString('pt-BR')},grid:{color:'rgba(255,255,255,0.06)'}}}}});}
-function mkDoughnut(id,labels,data,colors){if(charts[id])charts[id].destroy();const ctx=document.getElementById(id);if(!ctx)return;charts[id]=new Chart(ctx,{type:'doughnut',data:{labels,datasets:[{data,backgroundColor:colors,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'rgba(255,255,255,0.7)',font:{size:11},boxWidth:12}}}}});}
-
-function renderPerfil(who){
-  const p=who==='walisson'?'w':'l';
-  const ganhos=window[`_${p}_ganhos`]||[];
-  const extras=window[`_${p}_extras`]||[];
-  const fixos=window[`_${p}_fixos`]||[];
-  const gT=ganhos.reduce((a,b)=>a+(b.valor||0),0);
-  const fT=fixos.reduce((a,b)=>a+(b.valor||0),0);
-  const eT=extras.reduce((a,b)=>a+(b.valor||0),0);
-  const pct=Math.min(100,Math.round(gT/6500*100));
-  document.getElementById(p+'-ganho-total').textContent=fmt(gT);
-  document.getElementById(p+'-gasto-total').textContent=fmt(fT+eT);
-  document.getElementById(p+'-saldo').textContent=fmt(gT-fT-eT);
-  document.getElementById(p+'-ganho-bar').style.width=pct+'%';
-  document.getElementById(p+'-ganho-pct').textContent=pct+'% da meta (R$ 6.500)';
-  document.getElementById(p+'-ganhos-list').innerHTML=ganhos.length===0?'<div class="empty">Nenhum ganho lançado ainda</div>':ganhos.map(g=>`<div class="list-item"><div class="list-item-left"><div class="list-item-name">${g.desc||'Ganho'}</div></div><div class="list-item-right"><span class="amount-in">${fmt(g.valor)}</span><button class="del-btn" onclick="delItem('${who}','ganhos','${g._key}')">×</button></div></div>`).join('');
-  document.getElementById(p+'-extras-list').innerHTML=extras.length===0?'<div class="empty">Nenhum gasto lançado</div>':extras.map(e=>`<div class="list-item"><div class="list-item-left"><div class="list-item-name">${e.nome}</div><span class="badge badge-extra">extra</span></div><div class="list-item-right"><span class="amount-out">${fmt(e.valor)}</span><button class="del-btn" onclick="delItem('${who}','extras','${e._key}')">×</button></div></div>`).join('');
-  document.getElementById(p+'-fixos-list').innerHTML=fixos.length===0?'<div class="empty">Nenhuma conta fixa</div>':fixos.map(f=>`<div class="list-item"><div class="list-item-left"><div class="list-item-name">${f.nome}</div><span class="badge badge-fixo">fixo</span></div><div class="list-item-right"><span class="amount-out">${fmt(f.valor)}</span><button class="del-btn" onclick="delItem('${who}','fixos','${f._key}')">×</button></div></div>`).join('');
-  mkDoughnut(p+'-chart-cat',['Contas fixas','Gastos do dia'],[fT||0,eT||0],['#0a84ff','#ffd60a']);
-  mkBar(p+'-chart-ganhos',ganhos.length?ganhos.map(g=>g.desc):['—'],[{label:'Ganhos',data:ganhos.length?ganhos.map(g=>g.valor):[0],backgroundColor:'rgba(48,209,88,0.7)',borderRadius:6}]);
-  updateCasal();
+// ── RENDER PRINCIPAL ────────────────────────────────────────────────────────
+function renderTudo(){
+  const sec=document.querySelector('.section.active');
+  if(!sec)return;
+  const id=sec.id.replace('sec-','');
+  if(id==='meu')renderMeu();
+  if(id==='resumo')renderResumo();
+  if(id==='fixos')renderFixos();
 }
 
-function updateCasal(){
-  const wG=(window._w_ganhos||[]).reduce((a,b)=>a+(b.valor||0),0);
-  const wGasto=(window._w_fixos||[]).reduce((a,b)=>a+(b.valor||0),0)+(window._w_extras||[]).reduce((a,b)=>a+(b.valor||0),0);
-  const lG=(window._l_ganhos||[]).reduce((a,b)=>a+(b.valor||0),0);
-  const lGasto=(window._l_fixos||[]).reduce((a,b)=>a+(b.valor||0),0)+(window._l_extras||[]).reduce((a,b)=>a+(b.valor||0),0);
-  const cF=(window._casal_fixos||[]).reduce((a,b)=>a+(b.valor||0),0);
-  const cD=(window._dividas||[]).reduce((a,b)=>a+(b.valor||0),0);
-  const tG=wG+lG;const tGasto=wGasto+lGasto+cF+cD;
-  document.getElementById('c-w-ganho').textContent=fmt(wG);document.getElementById('c-w-gasto').textContent=fmt(wGasto);document.getElementById('c-w-saldo').textContent=fmt(wG-wGasto);
-  document.getElementById('c-l-ganho').textContent=fmt(lG);document.getElementById('c-l-gasto').textContent=fmt(lGasto);document.getElementById('c-l-saldo').textContent=fmt(lG-lGasto);
-  document.getElementById('c-ganho').textContent=fmt(tG);document.getElementById('c-gasto').textContent=fmt(tGasto);document.getElementById('c-saldo').textContent=fmt(tG-tGasto);
-  document.getElementById('casal-fixos-list').innerHTML=(window._casal_fixos||[]).map(f=>`<div class="list-item"><div class="list-item-left"><div class="list-item-name">${f.nome}</div><span class="badge badge-fixo">fixo</span></div><div class="list-item-right"><span class="amount-out">${fmt(f.valor)}</span><button class="del-btn" onclick="delCasalFixo('${f._key}')">×</button></div></div>`).join('');
-  document.getElementById('casal-fixo-total').textContent=fmt(cF);
-  document.getElementById('dividas-list').innerHTML=(window._dividas||[]).map(d=>`<div class="list-item"><div class="list-item-left"><div class="list-item-name">${d.nome}</div><span class="badge badge-parcela">parcela</span></div><div class="list-item-right"><span class="amount-out">${fmt(d.valor)}/mês</span><button class="del-btn" onclick="delDivida('${d._key}')">×</button></div></div>`).join('');
-  document.getElementById('dividas-total').textContent=fmt(cD);
-  mkBar('c-chart',['Walisson','Leidiane'],[{label:'Ganhos',data:[wG,lG],backgroundColor:'rgba(48,209,88,0.7)',borderRadius:6},{label:'Gastos',data:[wGasto,lGasto],backgroundColor:'rgba(255,69,58,0.7)',borderRadius:6}]);
+// ── ABA MEU ─────────────────────────────────────────────────────────────────
+function renderMeu(){
+  const membro=membros.find(m=>m.id===(membroAtivo||meuPerfil));
+  if(!membro)return;
+  const isEu=membroAtivo===meuPerfil;
+
+  document.getElementById('meu-titulo').textContent=membro.nome;
+  document.getElementById('meu-titulo').style.color=membro.cor;
+
+  const ganhos=(_dados.ganhos||[]).filter(g=>g.pid===membro.id);
+  const gastos=(_dados.gastos||[]).filter(g=>g.pid===membro.id);
+  const fixosPagos=(_dados.fixos||[]).filter(f=>f.pid===membro.id&&f.pago);
+
+  const totalGanho=ganhos.reduce((a,b)=>a+(b.valor||0),0);
+  const totalGasto=gastos.reduce((a,b)=>a+(b.valor||0),0);
+  const totalFixoPago=fixosPagos.reduce((a,b)=>a+(b.valor||0),0);
+  const totalGastoReal=totalGasto+totalFixoPago;
+  const saldo=totalGanho-totalGastoReal;
+  const meta=6500;
+  const pct=Math.min(100,Math.round(totalGanho/meta*100));
+
+  document.getElementById('meu-ganho').textContent=fmt(totalGanho);
+  document.getElementById('meu-gasto').textContent=fmt(totalGastoReal);
+  document.getElementById('meu-saldo').textContent=fmtSigned(saldo);
+  document.getElementById('meu-saldo').style.color=saldo>=0?'var(--green)':'var(--red)';
+  document.getElementById('meu-bar').style.width=pct+'%';
+  document.getElementById('meu-bar').style.background=membro.cor;
+  document.getElementById('meu-pct').textContent=pct+'% da meta (R$ 6.500)';
+
+  // lista ganhos
+  const gl=document.getElementById('meu-ganhos-list');
+  gl.innerHTML=ganhos.length===0?'<div class="empty">Nenhum ganho lançado</div>':
+    ganhos.map(g=>`<div class="item"><div class="item-left"><div class="item-name">${g.desc}</div><div class="item-sub">${g.data||''}</div></div><div class="item-right"><span class="val-in">+${fmt(g.valor)}</span>${isEu?`<button class="del" onclick="delGanho('${g._key}')">×</button>`:''}</div></div>`).join('');
+
+  // lista gastos
+  const el=document.getElementById('meu-gastos-list');
+  // agrupar por categoria
+  const cats={};
+  gastos.forEach(g=>{const c=g.cat||'Outros';if(!cats[c])cats[c]=[];cats[c].push(g);});
+  el.innerHTML=gastos.length===0?'<div class="empty">Nenhum gasto lançado</div>':
+    gastos.map(g=>`<div class="item"><div class="item-left"><div class="item-name">${g.nome}</div><div class="item-sub"><span class="chip">${g.cat||'Outros'}</span></div></div><div class="item-right"><span class="val-out">-${fmt(g.valor)}</span>${isEu?`<button class="del" onclick="delGasto('${g._key}')">×</button>`:''}</div></div>`).join('');
+
+  // gráfico categorias
+  if(gastos.length>0){
+    const catTotais={};
+    gastos.forEach(g=>{const c=g.cat||'Outros';catTotais[c]=(catTotais[c]||0)+g.valor;});
+    const sorted=Object.entries(catTotais).sort((a,b)=>b[1]-a[1]);
+    mkDoughnut('chart-cats',sorted.map(x=>x[0]),sorted.map(x=>x[1]),
+      ['#6c63ff','#f97316','#10b981','#ec4899','#3b82f6','#f59e0b','#ef4444']);
+    document.getElementById('card-cats').style.display='block';
+  } else {
+    document.getElementById('card-cats').style.display='none';
+  }
+
+  // mostrar/ocultar inputs se sou eu
+  document.getElementById('row-add-ganho').style.display=isEu?'flex':'none';
+  document.getElementById('row-add-gasto').style.display=isEu?'flex':'none';
 }
 
-window.saveMonth=async function(){
-  const wG=(window._w_ganhos||[]).reduce((a,b)=>a+(b.valor||0),0);const wGasto=(window._w_fixos||[]).reduce((a,b)=>a+(b.valor||0),0)+(window._w_extras||[]).reduce((a,b)=>a+(b.valor||0),0);
-  const lG=(window._l_ganhos||[]).reduce((a,b)=>a+(b.valor||0),0);const lGasto=(window._l_fixos||[]).reduce((a,b)=>a+(b.valor||0),0)+(window._l_extras||[]).reduce((a,b)=>a+(b.valor||0),0);
-  const cF=(window._casal_fixos||[]).reduce((a,b)=>a+(b.valor||0),0);const cD=(window._dividas||[]).reduce((a,b)=>a+(b.valor||0),0);
-  await push(ref(db,`casais/${casalCode}/historico`),{mes:getML(0),ts:Date.now(),wGanho:wG,wGasto,lGanho:lG,lGasto,casalFixo:cF,casalDivida:cD,totalGanho:wG+lG,totalGasto:wGasto+lGasto+cF+cD,saldo:(wG+lG)-(wGasto+lGasto+cF+cD)});
-  await set(ref(db,`casais/${casalCode}/walisson/ganhos`),null);await set(ref(db,`casais/${casalCode}/walisson/extras`),null);
-  await set(ref(db,`casais/${casalCode}/leidiane/ganhos`),null);await set(ref(db,`casais/${casalCode}/leidiane/extras`),null);
-  alert('Mês salvo! 🎉');
+// ── ABA RESUMO ───────────────────────────────────────────────────────────────
+function renderResumo(){
+  if(modoApp==='solo'){
+    document.getElementById('resumo-grupo').style.display='none';
+    document.getElementById('resumo-solo').style.display='block';
+    renderResumoSolo();
+  } else {
+    document.getElementById('resumo-grupo').style.display='block';
+    document.getElementById('resumo-solo').style.display='none';
+    renderResumoGrupo();
+  }
 }
 
+function renderResumoSolo(){
+  const ganhos=(_dados.ganhos||[]).filter(g=>g.pid===meuPerfil);
+  const gastos=(_dados.gastos||[]).filter(g=>g.pid===meuPerfil);
+  const fixosPagos=(_dados.fixos||[]).filter(f=>f.pid===meuPerfil&&f.pago);
+  const fixosPendentes=(_dados.fixos||[]).filter(f=>f.pid===meuPerfil&&!f.pago);
+  const tG=ganhos.reduce((a,b)=>a+(b.valor||0),0);
+  const tGasto=gastos.reduce((a,b)=>a+(b.valor||0),0);
+  const tFixoPago=fixosPagos.reduce((a,b)=>a+(b.valor||0),0);
+  const tFixoPend=fixosPendentes.reduce((a,b)=>a+(b.valor||0),0);
+  const saldo=tG-tGasto-tFixoPago;
+
+  document.getElementById('rs-ganho').textContent=fmt(tG);
+  document.getElementById('rs-gasto-diario').textContent=fmt(tGasto);
+  document.getElementById('rs-fixo-pago').textContent=fmt(tFixoPago);
+  document.getElementById('rs-fixo-pend').textContent=fmt(tFixoPend);
+  document.getElementById('rs-saldo').textContent=fmtSigned(saldo);
+  document.getElementById('rs-saldo').style.color=saldo>=0?'var(--green)':'var(--red)';
+}
+
+function renderResumoGrupo(){
+  const lista=document.getElementById('resumo-membros-lista');
+  let totalGrupoGanho=0,totalGrupoGasto=0;
+  lista.innerHTML=membros.map(m=>{
+    const ganhos=(_dados.ganhos||[]).filter(g=>g.pid===m.id);
+    const gastos=(_dados.gastos||[]).filter(g=>g.pid===m.id);
+    const fixosPagos=(_dados.fixos||[]).filter(f=>f.pid===m.id&&f.pago);
+    const tG=ganhos.reduce((a,b)=>a+(b.valor||0),0);
+    const tGasto=gastos.reduce((a,b)=>a+(b.valor||0),0)+(fixosPagos.reduce((a,b)=>a+(b.valor||0),0));
+    const saldo=tG-tGasto;
+    totalGrupoGanho+=tG;totalGrupoGasto+=tGasto;
+    return `<div class="resumo-membro-card">
+      <div class="rm-header">
+        <div class="rm-avatar" style="background:${m.cor}20;color:${m.cor}">${m.nome[0].toUpperCase()}</div>
+        <div class="rm-nome">${m.nome}</div>
+        <div class="rm-saldo" style="color:${saldo>=0?'var(--green)':'var(--red)'}">${fmtSigned(saldo)}</div>
+      </div>
+      <div class="rm-row"><span>Ganhos</span><span style="color:var(--green)">${fmt(tG)}</span></div>
+      <div class="rm-row"><span>Gastos</span><span style="color:var(--red)">${fmt(tGasto)}</span></div>
+    </div>`;
+  }).join('');
+
+  const saldoGrupo=totalGrupoGanho-totalGrupoGasto;
+  document.getElementById('rg-ganho').textContent=fmt(totalGrupoGanho);
+  document.getElementById('rg-gasto').textContent=fmt(totalGrupoGasto);
+  document.getElementById('rg-saldo').textContent=fmtSigned(saldoGrupo);
+  document.getElementById('rg-saldo').style.color=saldoGrupo>=0?'var(--green)':'var(--red)';
+
+  // gráfico comparativo
+  if(membros.length>1){
+    mkBar('chart-resumo',membros.map(m=>m.nome),[
+      {label:'Ganhos',data:membros.map(m=>(_dados.ganhos||[]).filter(g=>g.pid===m.id).reduce((a,b)=>a+(b.valor||0),0)),backgroundColor:membros.map(m=>m.cor+'99'),borderRadius:8},
+      {label:'Gastos',data:membros.map(m=>{
+        const g=(_dados.gastos||[]).filter(x=>x.pid===m.id).reduce((a,b)=>a+(b.valor||0),0);
+        const f=(_dados.fixos||[]).filter(x=>x.pid===m.id&&x.pago).reduce((a,b)=>a+(b.valor||0),0);
+        return g+f;
+      }),backgroundColor:'rgba(239,68,68,0.5)',borderRadius:8}
+    ]);
+    document.getElementById('card-chart-resumo').style.display='block';
+  }
+}
+
+// ── ABA FIXOS ─────────────────────────────────────────────────────────────
+function renderFixos(){
+  const fixos=(_dados.fixos||[]);
+  const isEu = true; // qualquer um pode editar fixos
+  
+  // total por pagar
+  const pendentes=fixos.filter(f=>!f.pago);
+  const pagos=fixos.filter(f=>f.pago);
+  const tPend=pendentes.reduce((a,b)=>a+(b.valor||0),0);
+  const tPago=pagos.reduce((a,b)=>a+(b.valor||0),0);
+  const tTotal=fixos.reduce((a,b)=>a+(b.valor||0),0);
+
+  document.getElementById('fixo-pend-total').textContent=fmt(tPend);
+  document.getElementById('fixo-pago-total').textContent=fmt(tPago);
+  document.getElementById('fixo-total').textContent=fmt(tTotal);
+
+  const lista=document.getElementById('fixos-lista');
+  if(fixos.length===0){
+    lista.innerHTML='<div class="empty">Nenhuma conta fixa cadastrada</div>';
+  } else {
+    lista.innerHTML=fixos.map(f=>{
+      const membro=membros.find(m=>m.id===f.pid)||{nome:'?',cor:'#666'};
+      return `<div class="fixo-item ${f.pago?'pago':''}">
+        <div class="fixo-check" onclick="toggleFixo('${f._key}',${!f.pago})" style="border-color:${f.pago?'var(--green)':'var(--border)'}">
+          ${f.pago?'<svg width="12" height="12" viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3" fill="none" stroke="var(--green)" stroke-width="2"/></svg>':''}
+        </div>
+        <div class="fixo-info">
+          <div class="fixo-nome ${f.pago?'riscado':''}">${f.nome}</div>
+          <div class="fixo-sub"><span style="color:${membro.cor}">${membro.nome}</span></div>
+        </div>
+        <div class="fixo-right">
+          <span class="fixo-valor ${f.pago?'val-out':''}">${fmt(f.valor)}</span>
+          <button class="del" onclick="delFixo('${f._key}')">×</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // gráfico fixos
+  if(fixos.length>0){
+    mkBar('chart-fixos',fixos.map(f=>f.nome),[
+      {label:'Valor',data:fixos.map(f=>f.valor),
+       backgroundColor:fixos.map(f=>f.pago?'rgba(16,185,129,0.7)':'rgba(239,68,68,0.5)'),borderRadius:6}
+    ]);
+    document.getElementById('card-chart-fixos').style.display='block';
+  }
+}
+
+// ── HISTÓRICO ──────────────────────────────────────────────────────────────
 function renderHistorico(){
-  const hist=window._historico||[];const listEl=document.getElementById('hist-list');
-  if(hist.length===0){listEl.innerHTML='<div class="empty" style="padding:20px">Nenhum mês salvo ainda.</div>';return;}
-  mkBar('hist-chart',hist.map(h=>h.mes).reverse(),[{label:'Renda',data:hist.map(h=>h.totalGanho).reverse(),backgroundColor:'rgba(48,209,88,0.7)',borderRadius:4},{label:'Gastos',data:hist.map(h=>h.totalGasto).reverse(),backgroundColor:'rgba(255,69,58,0.7)',borderRadius:4},{label:'Saldo',data:hist.map(h=>h.saldo).reverse(),backgroundColor:'rgba(10,132,255,0.7)',borderRadius:4}]);
-  listEl.innerHTML=hist.map(h=>`<div class="hist-card"><div class="hist-month">${h.mes}</div><div class="hist-row"><span class="hist-label">Renda total</span><span style="color:var(--green);font-weight:600">${fmt(h.totalGanho)}</span></div><div class="hist-row"><span class="hist-label">↳ Walisson</span><span style="color:var(--green)">${fmt(h.wGanho)}</span></div><div class="hist-row"><span class="hist-label">↳ Leidiane</span><span style="color:var(--green)">${fmt(h.lGanho)}</span></div><div class="hist-row"><span class="hist-label">Total gastos</span><span style="color:var(--red);font-weight:600">${fmt(h.totalGasto)}</span></div><div class="hist-row"><span class="hist-label">Saldo final</span><span style="color:${h.saldo>=0?'var(--green)':'var(--red)'};font-weight:700;font-size:16px">${fmt(h.saldo)}</span></div></div>`).join('');
+  const hist=_dados.historico||[];
+  const listEl=document.getElementById('hist-lista');
+  if(hist.length===0){listEl.innerHTML='<div class="empty" style="padding:24px 0">Nenhum mês fechado ainda.</div>';return;}
+  
+  mkBar('chart-hist',hist.map(h=>h.mes).reverse(),[
+    {label:'Renda',data:hist.map(h=>h.totalGanho).reverse(),backgroundColor:'rgba(108,99,255,0.7)',borderRadius:6},
+    {label:'Gastos',data:hist.map(h=>h.totalGasto).reverse(),backgroundColor:'rgba(239,68,68,0.5)',borderRadius:6},
+    {label:'Saldo',data:hist.map(h=>h.saldo).reverse(),backgroundColor:'rgba(16,185,129,0.6)',borderRadius:6}
+  ]);
+
+  listEl.innerHTML=hist.map(h=>`
+    <div class="hist-card">
+      <div class="hist-mes">${h.mes}</div>
+      <div class="hist-row"><span>Renda total</span><span style="color:var(--green);font-weight:600">${fmt(h.totalGanho)}</span></div>
+      <div class="hist-row"><span>Gastos diários</span><span style="color:var(--red)">${fmt(h.totalGastoDiario||0)}</span></div>
+      <div class="hist-row"><span>Contas fixas pagas</span><span style="color:var(--red)">${fmt(h.totalFixo||0)}</span></div>
+      <div class="hist-row"><span class="bold">Saldo final</span><span style="color:${h.saldo>=0?'var(--green)':'var(--red)'};font-weight:700;font-size:18px">${fmtSigned(h.saldo)}</span></div>
+    </div>
+  `).join('');
 }
 
-window.desconectar=function(){if(!confirm('Desconectar?'))return;localStorage.removeItem('financas_casal_code');localStorage.removeItem('financas_meu_perfil');location.reload();}
+// ── AÇÕES ──────────────────────────────────────────────────────────────────
+window.addGanho = async function(){
+  const inp=document.getElementById('inp-ganho');
+  const val=parseFloat(inp.value);
+  if(!val||val<=0){showToast('Valor inválido','error');return;}
+  await push(ref(db,`grupos/${grupoCode}/ganhos`),{pid:meuPerfil,desc:'Dia '+today(),valor:val,data:today(),ts:Date.now()});
+  inp.value='';showToast('Ganho lançado! 💰');
+}
 
-showVinculacao();
+window.addGasto = async function(){
+  const desc=document.getElementById('inp-gasto-desc').value.trim();
+  const val=parseFloat(document.getElementById('inp-gasto-val').value);
+  const cat=document.getElementById('inp-gasto-cat').value;
+  if(!desc||!val||val<=0){showToast('Preencha descrição e valor','error');return;}
+  await push(ref(db,`grupos/${grupoCode}/gastos`),{pid:meuPerfil,nome:desc,valor:val,cat,data:today(),ts:Date.now()});
+  document.getElementById('inp-gasto-desc').value='';
+  document.getElementById('inp-gasto-val').value='';
+  showToast('Gasto registrado!');
+}
+
+window.addFixo = async function(){
+  const desc=document.getElementById('inp-fixo-desc').value.trim();
+  const val=parseFloat(document.getElementById('inp-fixo-val').value);
+  if(!desc||!val||val<=0){showToast('Preencha descrição e valor','error');return;}
+  await push(ref(db,`grupos/${grupoCode}/fixos`),{pid:meuPerfil,nome:desc,valor:val,pago:false,ts:Date.now()});
+  document.getElementById('inp-fixo-desc').value='';
+  document.getElementById('inp-fixo-val').value='';
+  showToast('Conta fixa adicionada!');
+}
+
+window.toggleFixo = async function(key,novoPago){
+  await update(ref(db,`grupos/${grupoCode}/fixos/${key}`),{pago:novoPago});
+  showToast(novoPago?'Conta marcada como paga! ✅':'Conta desmarcada');
+}
+
+window.delGanho=async function(key){await remove(ref(db,`grupos/${grupoCode}/ganhos/${key}`));showToast('Removido');}
+window.delGasto=async function(key){await remove(ref(db,`grupos/${grupoCode}/gastos/${key}`));showToast('Removido');}
+window.delFixo=async function(key){await remove(ref(db,`grupos/${grupoCode}/fixos/${key}`));showToast('Removido');}
+
+window.fecharMes = async function(){
+  if(!confirm('Fechar o mês? Ganhos e gastos serão zerados.'))return;
+  const ganhos=_dados.ganhos||[];
+  const gastos=_dados.gastos||[];
+  const fixos=_dados.fixos||[];
+  const tG=ganhos.reduce((a,b)=>a+(b.valor||0),0);
+  const tGD=gastos.reduce((a,b)=>a+(b.valor||0),0);
+  const tF=fixos.filter(f=>f.pago).reduce((a,b)=>a+(b.valor||0),0);
+  await push(ref(db,`grupos/${grupoCode}/historico`),{
+    mes:getML(),ts:Date.now(),totalGanho:tG,totalGastoDiario:tGD,totalFixo:tF,totalGasto:tGD+tF,saldo:tG-tGD-tF
+  });
+  await set(ref(db,`grupos/${grupoCode}/ganhos`),null);
+  await set(ref(db,`grupos/${grupoCode}/gastos`),null);
+  // resetar fixos para não pago
+  for(const f of fixos){
+    await update(ref(db,`grupos/${grupoCode}/fixos/${f._key}`),{pago:false});
+  }
+  showToast('Mês fechado! 🎉 Novo mês começando!');
+}
+
+window.desconectar = function(){
+  if(!confirm('Sair da conta? Você poderá entrar novamente com o código.'))return;
+  localStorage.removeItem('grana_code');
+  localStorage.removeItem('grana_perfil');
+  localStorage.removeItem('grana_nome');
+  localStorage.removeItem('grana_modo');
+  location.reload();
+}
+
+// ── CHARTS ─────────────────────────────────────────────────────────────────
+function mkBar(id,labels,datasets){
+  if(charts[id])charts[id].destroy();
+  const ctx=document.getElementById(id);if(!ctx)return;
+  charts[id]=new Chart(ctx,{type:'bar',data:{labels,datasets},options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{labels:{color:'rgba(255,255,255,0.6)',font:{size:11,family:'DM Sans'},boxWidth:10}}},
+    scales:{
+      x:{ticks:{color:'rgba(255,255,255,0.5)',font:{size:10}},grid:{color:'rgba(255,255,255,0.04)'}},
+      y:{ticks:{color:'rgba(255,255,255,0.5)',font:{size:10},callback:v=>'R$'+Number(v).toLocaleString('pt-BR')},grid:{color:'rgba(255,255,255,0.04)'}}
+    }
+  }});
+}
+
+function mkDoughnut(id,labels,data,colors){
+  if(charts[id])charts[id].destroy();
+  const ctx=document.getElementById(id);if(!ctx)return;
+  charts[id]=new Chart(ctx,{type:'doughnut',data:{labels,datasets:[{data,backgroundColor:colors,borderWidth:0,hoverOffset:6}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'70%',
+    plugins:{legend:{position:'right',labels:{color:'rgba(255,255,255,0.6)',font:{size:11,family:'DM Sans'},boxWidth:10}}}}});
+}
+
+// ── TELAS ──────────────────────────────────────────────────────────────────
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.style.display='none');
+  document.getElementById(id).style.display='flex';
+}
+
+// ── START ──────────────────────────────────────────────────────────────────
+init();
+// mostrar meu perfil por padrão
+window.addEventListener('load',()=>{
+  if(meuPerfil){membroAtivo=meuPerfil;}
+});
 </script>
 <style>
-:root{--bg:#111;--surface:#1c1c1e;--surface2:#2c2c2e;--border:rgba(255,255,255,0.08);--text:#f5f5f7;--text2:#8e8e93;--text3:#636366;--green:#30d158;--green-bg:rgba(48,209,88,0.12);--red:#ff453a;--red-bg:rgba(255,69,58,0.12);--blue:#0a84ff;--blue-bg:rgba(10,132,255,0.12);--amber:#ffd60a;--amber-bg:rgba(255,214,10,0.12);--pink:#ff375f;--radius:14px;--radius-sm:10px;}
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap');
+
+:root{
+  --bg:#0a0a0f;
+  --surface:#13131a;
+  --surface2:#1c1c27;
+  --surface3:#252533;
+  --border:rgba(255,255,255,0.07);
+  --border2:rgba(255,255,255,0.12);
+  --text:#f0f0f5;
+  --text2:#9090a8;
+  --text3:#5a5a72;
+  --green:#10b981;
+  --green-bg:rgba(16,185,129,0.1);
+  --red:#ef4444;
+  --red-bg:rgba(239,68,68,0.1);
+  --purple:#6c63ff;
+  --purple-bg:rgba(108,99,255,0.12);
+  --orange:#f97316;
+  --radius:16px;
+  --radius-sm:10px;
+  --radius-xs:7px;
+}
+
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
-html,body{height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overscroll-behavior:none;}
-#tela-vinculacao{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;}
-.vinc-logo{font-size:48px;margin-bottom:8px;}.vinc-title{font-size:24px;font-weight:700;margin-bottom:4px;}.vinc-sub{font-size:14px;color:var(--text3);margin-bottom:32px;text-align:center;}
-.vinc-card{background:var(--surface);border-radius:var(--radius);padding:20px;width:100%;max-width:360px;margin-bottom:16px;}.vinc-card-title{font-size:15px;font-weight:700;margin-bottom:16px;}
-.vinc-input{width:100%;background:var(--surface2);border:none;border-radius:var(--radius-sm);padding:13px 14px;font-size:16px;color:var(--text);outline:none;margin-bottom:10px;}.vinc-input::placeholder{color:var(--text3);}
-.vinc-btn{width:100%;border:none;border-radius:var(--radius-sm);padding:14px;font-size:16px;font-weight:700;cursor:pointer;}.vinc-btn.primary{background:var(--blue);color:#fff;}.vinc-btn.secondary{background:var(--green);color:#000;}
-.codigo-box{background:var(--surface2);border-radius:var(--radius-sm);padding:16px;text-align:center;margin:12px 0;}.codigo-box-label{font-size:12px;color:var(--text3);margin-bottom:6px;}.codigo-box-valor{font-size:28px;font-weight:700;letter-spacing:6px;color:var(--blue);}.codigo-box-hint{font-size:12px;color:var(--text3);margin-top:6px;}
-#box-codigo{display:none;}#btn-entrar-codigo{display:none;margin-top:4px;}
-#app{display:none;flex-direction:column;height:100vh;height:100dvh;max-width:480px;margin:0 auto;}
-#content{flex:1;overflow-y:auto;padding:0 16px 100px;-webkit-overflow-scrolling:touch;}
-.header{padding:52px 16px 12px;display:flex;align-items:center;justify-content:space-between;}.header-title{font-size:28px;font-weight:700;letter-spacing:-0.5px;}
-.sync-badge{background:var(--green-bg);color:var(--green);font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;}
-.bottom-nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:rgba(17,17,17,0.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:0.5px solid var(--border);padding:8px 0 max(8px,env(safe-area-inset-bottom));display:flex;z-index:100;}
-.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;cursor:pointer;color:var(--text3);transition:color 0.15s;}.nav-item.active{color:var(--blue);}
-.nav-icon{font-size:22px;line-height:1;}.nav-label{font-size:10px;font-weight:500;}
-.section{display:none;}.section.active{display:block;}
-.card{background:var(--surface);border-radius:var(--radius);padding:16px;margin-bottom:12px;}.card-title{font-size:13px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;}
-.metrics-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;}.metric-wide{grid-column:span 2;}
-.metric{background:var(--surface);border-radius:var(--radius-sm);padding:14px;}.metric.green{background:var(--green-bg);}.metric.red{background:var(--red-bg);}.metric.blue{background:var(--blue-bg);}
-.metric-label{font-size:11px;color:var(--text2);margin-bottom:4px;font-weight:500;}.metric.green .metric-label{color:var(--green);}.metric.red .metric-label{color:var(--red);}.metric.blue .metric-label{color:var(--blue);}
-.metric-value{font-size:22px;font-weight:700;letter-spacing:-0.5px;}.metric.green .metric-value{color:var(--green);}.metric.red .metric-value{color:var(--red);}.metric.blue .metric-value{color:var(--blue);}
-.progress-track{background:rgba(255,255,255,0.08);border-radius:4px;height:5px;overflow:hidden;margin-top:10px;}.progress-fill{height:100%;border-radius:4px;transition:width 0.4s ease;}.progress-label{font-size:11px;color:var(--text3);margin-top:4px;}
-.ganho-input-row{display:flex;gap:8px;margin-bottom:10px;}.ganho-input-row input{flex:1;background:var(--surface2);border:none;border-radius:var(--radius-sm);padding:12px 14px;font-size:16px;color:var(--text);outline:none;}.ganho-input-row input::placeholder{color:var(--text3);}
-.ganho-btn{background:var(--green);color:#000;border:none;border-radius:var(--radius-sm);padding:12px 16px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;}
-.list-item{display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:0.5px solid var(--border);}.list-item:last-child{border-bottom:none;}.list-item-left{flex:1;}.list-item-name{font-size:15px;color:var(--text);}
-.list-item-right{display:flex;align-items:center;gap:10px;}.amount-out{font-size:15px;font-weight:600;color:var(--red);}.amount-in{font-size:15px;font-weight:600;color:var(--green);}
-.del-btn{background:rgba(255,69,58,0.15);border:none;color:var(--red);border-radius:8px;width:28px;height:28px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
-.badge{display:inline-block;font-size:10px;font-weight:600;padding:2px 7px;border-radius:6px;margin-top:2px;}.badge-fixo{background:var(--blue-bg);color:var(--blue);}.badge-extra{background:var(--amber-bg);color:var(--amber);}.badge-parcela{background:var(--red-bg);color:var(--red);}
-.add-row{display:flex;gap:8px;margin-top:10px;padding-top:10px;border-top:0.5px solid var(--border);}.add-row input{flex:1;background:var(--surface2);border:none;border-radius:var(--radius-sm);padding:10px 12px;font-size:14px;color:var(--text);outline:none;min-width:0;}.add-row input::placeholder{color:var(--text3);}
-.add-row .add-btn{background:var(--surface2);border:none;color:var(--blue);border-radius:var(--radius-sm);padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
-.chart-wrap{position:relative;height:180px;margin-top:4px;}.empty{font-size:14px;color:var(--text3);padding:12px 0;text-align:center;}
-.casal-split{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;}.person-card{background:var(--surface);border-radius:var(--radius);padding:14px;}
-.person-avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;margin-bottom:10px;}.avatar-w{background:var(--blue-bg);color:var(--blue);}.avatar-l{background:rgba(255,55,95,0.15);color:var(--pink);}
-.person-name{font-size:13px;font-weight:600;color:var(--text2);margin-bottom:8px;}.person-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;}.person-row-label{font-size:12px;color:var(--text3);}.person-row-val{font-size:13px;font-weight:600;}
-.total-row{display:flex;justify-content:space-between;align-items:center;padding-top:10px;margin-top:6px;border-top:0.5px solid var(--border);}.total-label{font-size:13px;font-weight:600;color:var(--text2);}.total-value{font-size:16px;font-weight:700;}
-.hist-card{background:var(--surface);border-radius:var(--radius);padding:16px;margin-bottom:10px;}.hist-month{font-size:15px;font-weight:700;margin-bottom:10px;}
-.hist-row{display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:0.5px solid var(--border);}.hist-row:last-child{border-bottom:none;}.hist-label{color:var(--text2);}
-.save-month-btn{width:100%;background:var(--surface2);border:none;color:var(--blue);border-radius:var(--radius-sm);padding:14px;font-size:15px;font-weight:600;cursor:pointer;margin-top:4px;}
-.desconectar-btn{width:100%;background:var(--red-bg);border:none;color:var(--red);border-radius:var(--radius-sm);padding:12px;font-size:13px;font-weight:600;cursor:pointer;margin-top:8px;}
-#meu-codigo-display{font-size:11px;color:var(--text3);text-align:center;padding:6px 16px 0;}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;overscroll-behavior:none;}
+
+/* ── SCREENS ── */
+.screen{display:none;flex-direction:column;min-height:100vh;}
+
+/* ── BOAS VINDAS ── */
+#tela-boas-vindas{align-items:center;justify-content:center;padding:32px 24px;background:var(--bg);}
+.bv-glow{width:120px;height:120px;border-radius:50%;background:var(--purple-bg);display:flex;align-items:center;justify-content:center;margin-bottom:24px;position:relative;}
+.bv-glow::before{content:'';position:absolute;inset:-1px;border-radius:50%;background:linear-gradient(135deg,var(--purple),transparent);opacity:0.3;}
+.bv-emoji{font-size:48px;}
+.bv-titulo{font-family:'Syne',sans-serif;font-size:32px;font-weight:800;letter-spacing:-1px;margin-bottom:6px;background:linear-gradient(135deg,#fff,var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.bv-sub{font-size:15px;color:var(--text2);margin-bottom:48px;text-align:center;line-height:1.5;}
+.modo-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;width:100%;max-width:340px;margin-bottom:8px;}
+.modo-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px 16px;cursor:pointer;text-align:center;transition:all 0.2s;}
+.modo-card:active{transform:scale(0.97);}
+.modo-card:hover{border-color:var(--purple);background:var(--purple-bg);}
+.modo-icon{font-size:32px;margin-bottom:10px;}
+.modo-label{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;}
+.modo-desc{font-size:12px;color:var(--text3);margin-top:4px;}
+
+/* ── CADASTRO ── */
+#tela-cadastro{align-items:center;justify-content:center;padding:32px 24px;background:var(--bg);}
+.cad-titulo{font-family:'Syne',sans-serif;font-size:24px;font-weight:800;margin-bottom:6px;}
+.cad-sub{font-size:14px;color:var(--text2);margin-bottom:32px;text-align:center;}
+.cad-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;width:100%;max-width:360px;margin-bottom:12px;}
+.cad-label{font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;}
+.inp{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:13px 14px;font-size:16px;color:var(--text);outline:none;font-family:'DM Sans',sans-serif;transition:border-color 0.2s;margin-bottom:10px;}
+.inp:focus{border-color:var(--purple);}
+.inp::placeholder{color:var(--text3);}
+.btn{width:100%;border:none;border-radius:var(--radius-sm);padding:14px;font-size:15px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:opacity 0.2s;}
+.btn:active{opacity:0.8;}
+.btn-purple{background:var(--purple);color:#fff;}
+.btn-green{background:var(--green);color:#000;}
+.btn-ghost{background:var(--surface2);color:var(--text2);margin-top:8px;}
+.codigo-box{background:var(--surface2);border-radius:var(--radius-sm);padding:16px;text-align:center;margin:12px 0;border:1px solid var(--border);}
+.codigo-val{font-family:'Syne',sans-serif;font-size:30px;font-weight:800;letter-spacing:8px;color:var(--purple);}
+.codigo-hint{font-size:12px;color:var(--text3);margin-top:6px;}
+#box-codigo-exibido{display:none;}
+#btn-entrar-app{display:none;margin-top:4px;}
+.divider{display:flex;align-items:center;gap:12px;margin:16px 0;color:var(--text3);font-size:12px;}
+.divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--border);}
+
+/* ── APP ── */
+#app{display:none;flex-direction:column;height:100vh;height:100dvh;max-width:480px;margin:0 auto;position:relative;}
+#app-content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:80px;}
+
+/* header */
+.app-header{padding:54px 20px 16px;display:flex;align-items:center;justify-content:space-between;}
+.app-titulo{font-family:'Syne',sans-serif;font-size:26px;font-weight:800;letter-spacing:-0.5px;}
+.header-right{display:flex;align-items:center;gap:8px;}
+.sync-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);}
+.code-badge{font-size:11px;font-weight:600;color:var(--text3);background:var(--surface2);padding:4px 10px;border-radius:20px;cursor:pointer;}
+
+/* nav membros */
+#nav-membros{display:flex;gap:8px;padding:0 20px 16px;overflow-x:auto;scrollbar-width:none;}
+#nav-membros::-webkit-scrollbar{display:none;}
+.membro-tab{display:flex;align-items:center;gap:7px;padding:7px 14px;border-radius:30px;background:var(--surface2);cursor:pointer;white-space:nowrap;font-size:13px;font-weight:500;transition:all 0.2s;border:1px solid transparent;}
+.membro-tab.active{background:var(--purple-bg);border-color:var(--purple);color:var(--purple);}
+.membro-avatar{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;}
+
+/* nav bottom */
+.bottom-nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:rgba(10,10,15,0.9);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-top:0.5px solid var(--border);padding:8px 0 max(8px,env(safe-area-inset-bottom));display:flex;z-index:100;}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;cursor:pointer;color:var(--text3);transition:color 0.15s;background:none;border:none;font-family:'DM Sans',sans-serif;}
+.nav-btn.active{color:var(--purple);}
+.nav-icon{font-size:20px;line-height:1;}
+.nav-label{font-size:10px;font-weight:500;}
+
+/* sections */
+.section{display:none;padding:0 20px;}.section.active{display:block;}
+
+/* cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px;}
+.card-title{font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.7px;margin-bottom:14px;}
+
+/* métricas */
+.metrics-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;}
+.metric-full{grid-column:span 2;}
+.metric{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;}
+.metric.g{background:var(--green-bg);border-color:rgba(16,185,129,0.2);}
+.metric.r{background:var(--red-bg);border-color:rgba(239,68,68,0.2);}
+.metric.p{background:var(--purple-bg);border-color:rgba(108,99,255,0.2);}
+.metric-label{font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;}
+.metric.g .metric-label{color:var(--green);}
+.metric.r .metric-label{color:var(--red);}
+.metric.p .metric-label{color:var(--purple);}
+.metric-value{font-family:'Syne',sans-serif;font-size:20px;font-weight:700;letter-spacing:-0.5px;}
+.metric.g .metric-value{color:var(--green);}
+.metric.r .metric-value{color:var(--red);}
+.metric.p .metric-value{color:var(--purple);}
+
+/* progresso */
+.prog-track{background:rgba(255,255,255,0.06);border-radius:4px;height:4px;overflow:hidden;margin-top:10px;}
+.prog-fill{height:100%;border-radius:4px;transition:width 0.5s ease;}
+.prog-label{font-size:11px;color:var(--text3);margin-top:5px;}
+
+/* lista itens */
+.item{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:0.5px solid var(--border);}
+.item:last-child{border-bottom:none;}
+.item-left{flex:1;}
+.item-name{font-size:14px;color:var(--text);}
+.item-sub{font-size:11px;color:var(--text3);margin-top:2px;}
+.item-right{display:flex;align-items:center;gap:8px;}
+.val-in{font-size:14px;font-weight:600;color:var(--green);}
+.val-out{font-size:14px;font-weight:600;color:var(--red);}
+.del{background:rgba(239,68,68,0.1);border:none;color:var(--red);border-radius:6px;width:26px;height:26px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.chip{display:inline-block;background:var(--surface3);color:var(--text2);font-size:10px;font-weight:500;padding:2px 7px;border-radius:5px;}
+
+/* add rows */
+.add-row{display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:0.5px solid var(--border);}
+.add-row .inp{flex:1;margin-bottom:0;padding:10px 12px;font-size:14px;}
+.add-row select{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 8px;font-size:13px;color:var(--text);outline:none;font-family:'DM Sans',sans-serif;}
+.add-row .btn-add{background:var(--purple);color:#fff;border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
+.add-ganho-row{display:flex;gap:8px;margin-bottom:12px;}
+.add-ganho-row .inp{flex:1;margin-bottom:0;}
+.add-ganho-row .btn-ganho{background:var(--green);color:#000;border:none;border-radius:var(--radius-sm);padding:12px 16px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;}
+
+/* fixos */
+.fixo-item{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:0.5px solid var(--border);}
+.fixo-item:last-child{border-bottom:none;}
+.fixo-item.pago{opacity:0.6;}
+.fixo-check{width:22px;height:22px;border-radius:6px;border:1.5px solid var(--border2);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all 0.2s;}
+.fixo-info{flex:1;}
+.fixo-nome{font-size:14px;color:var(--text);}
+.fixo-nome.riscado{text-decoration:line-through;color:var(--text3);}
+.fixo-sub{font-size:11px;color:var(--text3);margin-top:2px;}
+.fixo-right{display:flex;align-items:center;gap:8px;}
+.fixo-valor{font-size:14px;font-weight:600;color:var(--text2);}
+.fixo-resumo{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;}
+.fixo-stat{background:var(--surface2);border-radius:var(--radius-sm);padding:12px;text-align:center;}
+.fixo-stat-label{font-size:10px;color:var(--text3);margin-bottom:4px;}
+.fixo-stat-val{font-size:16px;font-weight:700;font-family:'Syne',sans-serif;}
+
+/* resumo */
+.resumo-membro-card{background:var(--surface2);border-radius:var(--radius-sm);padding:14px;margin-bottom:8px;}
+.rm-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.rm-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;}
+.rm-nome{flex:1;font-size:14px;font-weight:600;}
+.rm-saldo{font-size:15px;font-weight:700;font-family:'Syne',sans-serif;}
+.rm-row{display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:var(--text2);}
+
+/* histórico */
+.hist-card{background:var(--surface2);border-radius:var(--radius-sm);padding:16px;margin-bottom:10px;}
+.hist-mes{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:10px;}
+.hist-row{display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:0.5px solid var(--border);}
+.hist-row:last-child{border-bottom:none;}
+.hist-row .bold{font-weight:600;color:var(--text);}
+
+/* chart */
+.chart-wrap{position:relative;height:180px;margin-top:4px;}
+.chart-wrap-tall{position:relative;height:200px;margin-top:4px;}
+
+/* botão fechar mês */
+.btn-fechar{width:100%;background:var(--purple-bg);border:1px solid var(--purple);color:var(--purple);border-radius:var(--radius-sm);padding:14px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:4px;}
+.btn-sair{width:100%;background:var(--red-bg);border:none;color:var(--red);border-radius:var(--radius-sm);padding:12px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:8px;}
+
+/* toast */
+.toast{position:fixed;bottom:100px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--surface3);color:var(--text);padding:10px 20px;border-radius:30px;font-size:14px;font-weight:500;z-index:999;opacity:0;transition:all 0.3s;white-space:nowrap;border:1px solid var(--border2);}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.toast.toast-error{background:var(--red-bg);border-color:var(--red);color:var(--red);}
+
+/* empty */
+.empty{font-size:14px;color:var(--text3);padding:12px 0;text-align:center;}
+
+/* scrollbar */
+::-webkit-scrollbar{width:0;}
 </style>
 </head>
 <body>
-<div id="tela-vinculacao">
-  <div class="vinc-logo">💑</div>
-  <div class="vinc-title">Finanças do Casal</div>
-  <div class="vinc-sub">Walisson & Leidiane</div>
-  <div class="vinc-card">
-    <div class="vinc-card-title">🆕 Criar novo casal</div>
-    <input class="vinc-input" id="input-nome" placeholder="Seu nome (ex: Walisson)" />
-    <button class="vinc-btn primary" onclick="criarCasal()">Criar e gerar código</button>
-    <div id="box-codigo">
-      <div class="codigo-box">
-        <div class="codigo-box-label">Seu código do casal</div>
-        <div class="codigo-box-valor" id="codigo-gerado"></div>
-        <div class="codigo-box-hint">Mande esse código pra sua esposa vincular!</div>
+
+<!-- TELA BOAS VINDAS -->
+<div class="screen" id="tela-boas-vindas">
+  <div class="bv-glow"><div class="bv-emoji">💸</div></div>
+  <div class="bv-titulo">Grana</div>
+  <div class="bv-sub">Controle financeiro simples<br>pra você ou pra vocês</div>
+  <div class="modo-grid">
+    <div class="modo-card" onclick="selecionarModo('solo')">
+      <div class="modo-icon">👤</div>
+      <div class="modo-label">Solo</div>
+      <div class="modo-desc">Só você</div>
+    </div>
+    <div class="modo-card" onclick="selecionarModo('grupo')">
+      <div class="modo-icon">👫</div>
+      <div class="modo-label">Grupo</div>
+      <div class="modo-desc">2 ou mais pessoas</div>
+    </div>
+  </div>
+</div>
+
+<!-- TELA CADASTRO -->
+<div class="screen" id="tela-cadastro">
+  <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;margin-bottom:6px;">Criar conta</div>
+  <div class="cad-sub" id="subtitulo-cadastro">Configure sua conta</div>
+
+  <div class="cad-card">
+    <div class="cad-label">Seu nome</div>
+    <input class="inp" id="inp-nome" placeholder="Como você quer ser chamado?" />
+
+    <!-- Solo -->
+    <button class="btn btn-purple" onclick="entrarSolo()" id="btn-solo-entrar" style="display:none">Começar →</button>
+
+    <!-- Grupo: criar -->
+    <div id="box-criar-grupo" style="display:none">
+      <button class="btn btn-purple" onclick="criarGrupo()">Criar grupo e gerar código</button>
+      <div id="box-codigo-exibido">
+        <div class="codigo-box">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">Código do grupo</div>
+          <div class="codigo-val" id="codigo-gerado"></div>
+          <div class="codigo-hint">Compartilhe com as outras pessoas!</div>
+        </div>
+        <button class="btn btn-green" id="btn-entrar-app" onclick="irParaApp()">Entrar no app ✓</button>
       </div>
-      <button class="vinc-btn secondary" id="btn-entrar-codigo" onclick="entrarComCodigo()">Entrar no app ✓</button>
     </div>
   </div>
-  <div class="vinc-card">
-    <div class="vinc-card-title">🔗 Vincular com código do parceiro</div>
-    <input class="vinc-input" id="input-nome-vincular" placeholder="Seu nome (ex: Leidiane)" />
-    <input class="vinc-input" id="input-codigo" placeholder="Código do casal (ex: AB12CD)" style="letter-spacing:4px;text-transform:uppercase;" />
-    <button class="vinc-btn secondary" onclick="vincularCasal()">Vincular e entrar</button>
+
+  <!-- Grupo: entrar com código -->
+  <div class="cad-card" id="box-codigo-grupo" style="display:none">
+    <div class="cad-label">Já tem um código?</div>
+    <input class="inp" id="inp-codigo" placeholder="Código do grupo (ex: AB12CD)" style="letter-spacing:4px;text-transform:uppercase;" />
+    <button class="btn btn-green" onclick="entrarGrupo()">Entrar no grupo</button>
+  </div>
+
+  <button class="btn btn-ghost" style="max-width:360px;width:100%" onclick="showScreen('tela-boas-vindas')">← Voltar</button>
+</div>
+
+<!-- APP -->
+<div class="screen" id="app">
+  <div id="app-content">
+
+    <!-- header -->
+    <div class="app-header">
+      <div class="app-titulo" id="meu-titulo">Grana</div>
+      <div class="header-right">
+        <div class="sync-dot"></div>
+        <div class="code-badge" id="code-badge" onclick="alert('Código: '+localStorage.getItem('grana_code'))">••••</div>
+      </div>
+    </div>
+
+    <!-- nav membros (grupo) -->
+    <div id="nav-membros"></div>
+
+    <!-- aba MEU -->
+    <div class="section active" id="sec-meu">
+      <div class="metrics-row">
+        <div class="metric g"><div class="metric-label">Ganhos</div><div class="metric-value" id="meu-ganho">R$ 0</div></div>
+        <div class="metric r"><div class="metric-label">Gastos</div><div class="metric-value" id="meu-gasto">R$ 0</div></div>
+        <div class="metric p metric-full"><div class="metric-label">Saldo</div><div class="metric-value" id="meu-saldo">R$ 0</div></div>
+      </div>
+
+      <!-- lançar ganho -->
+      <div class="card" id="card-ganho">
+        <div class="card-title">Lançar ganho do dia</div>
+        <div class="add-ganho-row" id="row-add-ganho">
+          <input type="number" class="inp" id="inp-ganho" inputmode="decimal" placeholder="Quanto você ganhou hoje?"/>
+          <button class="btn-ganho" onclick="addGanho()">+ Lançar</button>
+        </div>
+        <div id="meu-ganhos-list"><div class="empty">Nenhum ganho lançado</div></div>
+        <div class="prog-track"><div class="prog-fill" id="meu-bar" style="width:0%"></div></div>
+        <div class="prog-label" id="meu-pct">0% da meta (R$ 6.500)</div>
+      </div>
+
+      <!-- gastos -->
+      <div class="card">
+        <div class="card-title">Gastos do dia</div>
+        <div id="meu-gastos-list"><div class="empty">Nenhum gasto lançado</div></div>
+        <div class="add-row" id="row-add-gasto">
+          <input type="text" class="inp" id="inp-gasto-desc" placeholder="O que foi?"/>
+          <input type="number" class="inp" id="inp-gasto-val" inputmode="decimal" placeholder="R$" style="max-width:80px"/>
+          <select id="inp-gasto-cat">
+            <option>Alimentação</option>
+            <option>Transporte</option>
+            <option>Lazer</option>
+            <option>Saúde</option>
+            <option>Compras</option>
+            <option>Outros</option>
+          </select>
+          <button class="btn-add" onclick="addGasto()">+ Add</button>
+        </div>
+      </div>
+
+      <!-- gráfico categorias -->
+      <div class="card" id="card-cats" style="display:none">
+        <div class="card-title">Onde está gastando mais</div>
+        <div class="chart-wrap"><canvas id="chart-cats"></canvas></div>
+      </div>
+    </div>
+
+    <!-- aba RESUMO -->
+    <div class="section" id="sec-resumo">
+
+      <!-- solo -->
+      <div id="resumo-solo" style="display:none">
+        <div class="metrics-row">
+          <div class="metric g"><div class="metric-label">Renda</div><div class="metric-value" id="rs-ganho">R$ 0</div></div>
+          <div class="metric r"><div class="metric-label">Gastos diários</div><div class="metric-value" id="rs-gasto-diario">R$ 0</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Contas fixas</div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--border)">
+            <span style="color:var(--text2);font-size:14px">Pagas este mês</span>
+            <span class="val-out" id="rs-fixo-pago">R$ 0</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0">
+            <span style="color:var(--text2);font-size:14px">Ainda a pagar</span>
+            <span style="color:var(--orange);font-size:14px;font-weight:600" id="rs-fixo-pend">R$ 0</span>
+          </div>
+        </div>
+        <div class="metric p metric-full" style="margin-bottom:12px">
+          <div class="metric-label">Saldo real do mês</div>
+          <div class="metric-value" id="rs-saldo">R$ 0</div>
+        </div>
+        <button class="btn-fechar" onclick="fecharMes()">💾 Fechar mês e salvar histórico</button>
+        <button class="btn-sair" onclick="desconectar()">Sair da conta</button>
+      </div>
+
+      <!-- grupo -->
+      <div id="resumo-grupo" style="display:none">
+        <div class="metrics-row">
+          <div class="metric g"><div class="metric-label">Renda grupo</div><div class="metric-value" id="rg-ganho">R$ 0</div></div>
+          <div class="metric r"><div class="metric-label">Gasto grupo</div><div class="metric-value" id="rg-gasto">R$ 0</div></div>
+          <div class="metric p metric-full"><div class="metric-label">Saldo do grupo</div><div class="metric-value" id="rg-saldo">R$ 0</div></div>
+        </div>
+        <div id="resumo-membros-lista"></div>
+        <div class="card" id="card-chart-resumo" style="display:none">
+          <div class="card-title">Comparativo</div>
+          <div class="chart-wrap"><canvas id="chart-resumo"></canvas></div>
+        </div>
+        <button class="btn-fechar" onclick="fecharMes()">💾 Fechar mês e salvar histórico</button>
+        <button class="btn-sair" onclick="desconectar()">Sair da conta</button>
+      </div>
+    </div>
+
+    <!-- aba FIXOS -->
+    <div class="section" id="sec-fixos">
+      <div class="fixo-resumo">
+        <div class="fixo-stat"><div class="fixo-stat-label">Total</div><div class="fixo-stat-val" id="fixo-total" style="color:var(--text2)">R$ 0</div></div>
+        <div class="fixo-stat"><div class="fixo-stat-label">Pago</div><div class="fixo-stat-val" id="fixo-pago-total" style="color:var(--green)">R$ 0</div></div>
+        <div class="fixo-stat"><div class="fixo-stat-label">Falta</div><div class="fixo-stat-val" id="fixo-pend-total" style="color:var(--orange)">R$ 0</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Contas do mês — toque para marcar como pago</div>
+        <div id="fixos-lista"><div class="empty">Nenhuma conta fixa</div></div>
+        <div class="add-row">
+          <input type="text" class="inp" id="inp-fixo-desc" placeholder="Nome da conta"/>
+          <input type="number" class="inp" id="inp-fixo-val" inputmode="decimal" placeholder="R$" style="max-width:80px"/>
+          <button class="btn-add" onclick="addFixo()">+ Add</button>
+        </div>
+      </div>
+
+      <div class="card" id="card-chart-fixos" style="display:none">
+        <div class="card-title">Distribuição das contas fixas</div>
+        <div class="chart-wrap"><canvas id="chart-fixos"></canvas></div>
+      </div>
+    </div>
+
+    <!-- aba HISTÓRICO -->
+    <div class="section" id="sec-historico">
+      <div class="card">
+        <div class="card-title">Evolução mensal</div>
+        <div class="chart-wrap-tall"><canvas id="chart-hist"></canvas></div>
+      </div>
+      <div id="hist-lista"><div class="empty" style="padding:24px 0">Nenhum mês fechado ainda.</div></div>
+    </div>
+
+  </div>
+
+  <!-- bottom nav -->
+  <div class="bottom-nav">
+    <button class="nav-btn active" onclick="showSection('meu',0)"><div class="nav-icon">👤</div><div class="nav-label">Eu</div></button>
+    <button class="nav-btn" onclick="showSection('resumo',1)"><div class="nav-icon">📊</div><div class="nav-label">Resumo</div></button>
+    <button class="nav-btn" onclick="showSection('fixos',2)"><div class="nav-icon">📋</div><div class="nav-label">Fixos</div></button>
+    <button class="nav-btn" onclick="showSection('historico',3)"><div class="nav-icon">🗂</div><div class="nav-label">Histórico</div></button>
   </div>
 </div>
-<div id="app">
-<div id="meu-codigo-display"></div>
-<div id="content">
-  <div class="section active" id="sec-walisson">
-    <div class="header"><div class="header-title">Walisson ✂️</div><span class="sync-badge">🔄 Ao vivo</span></div>
-    <div class="metrics-grid">
-      <div class="metric green"><div class="metric-label">GANHOS</div><div class="metric-value" id="w-ganho-total">R$ 0</div></div>
-      <div class="metric red"><div class="metric-label">GASTOS</div><div class="metric-value" id="w-gasto-total">R$ 0</div></div>
-      <div class="metric blue metric-wide"><div class="metric-label">SALDO</div><div class="metric-value" id="w-saldo">R$ 0</div></div>
-    </div>
-    <div class="card">
-      <div class="card-title">Lançar ganho do dia</div>
-      <div class="ganho-input-row"><input type="number" id="w-ganho-input" inputmode="decimal" placeholder="Quanto você ganhou hoje?" /><button class="ganho-btn" onclick="addGanho('walisson')">+ Lançar</button></div>
-      <div id="w-ganhos-list"></div>
-      <div class="progress-track"><div class="progress-fill" id="w-ganho-bar" style="width:0%;background:var(--green)"></div></div>
-      <div class="progress-label" id="w-ganho-pct">0% da meta (R$ 6.500)</div>
-    </div>
-    <div class="card"><div class="card-title">Gastos do dia</div><div id="w-extras-list"></div><div class="add-row"><input type="text" id="w-extra-desc" placeholder="O que foi? (espetinho, café...)" /><input type="number" id="w-extra-val" inputmode="decimal" placeholder="R$" style="max-width:80px;"/><button class="add-btn" onclick="addExtra('walisson')">+ Add</button></div></div>
-    <div class="card"><div class="card-title">Contas fixas</div><div id="w-fixos-list"></div><div class="add-row"><input type="text" id="w-fixo-desc" placeholder="Nome da conta" /><input type="number" id="w-fixo-val" inputmode="decimal" placeholder="R$" style="max-width:80px;"/><button class="add-btn" onclick="addFixo('walisson')">+ Add</button></div></div>
-    <div class="card"><div class="card-title">Gastos por categoria</div><div class="chart-wrap"><canvas id="w-chart-cat"></canvas></div></div>
-    <div class="card"><div class="card-title">Evolução dos ganhos</div><div class="chart-wrap"><canvas id="w-chart-ganhos"></canvas></div></div>
-  </div>
-  <div class="section" id="sec-leidiane">
-    <div class="header"><div class="header-title">Leidiane 💄</div><span class="sync-badge">🔄 Ao vivo</span></div>
-    <div class="metrics-grid">
-      <div class="metric green"><div class="metric-label">GANHOS</div><div class="metric-value" id="l-ganho-total">R$ 0</div></div>
-      <div class="metric red"><div class="metric-label">GASTOS</div><div class="metric-value" id="l-gasto-total">R$ 0</div></div>
-      <div class="metric blue metric-wide"><div class="metric-label">SALDO</div><div class="metric-value" id="l-saldo">R$ 0</div></div>
-    </div>
-    <div class="card">
-      <div class="card-title">Lançar ganho do dia</div>
-      <div class="ganho-input-row"><input type="number" id="l-ganho-input" inputmode="decimal" placeholder="Quanto você ganhou hoje?" /><button class="ganho-btn" onclick="addGanho('leidiane')">+ Lançar</button></div>
-      <div id="l-ganhos-list"></div>
-      <div class="progress-track"><div class="progress-fill" id="l-ganho-bar" style="width:0%;background:var(--green)"></div></div>
-      <div class="progress-label" id="l-ganho-pct">0% da meta (R$ 6.500)</div>
-    </div>
-    <div class="card"><div class="card-title">Gastos do dia</div><div id="l-extras-list"></div><div class="add-row"><input type="text" id="l-extra-desc" placeholder="O que foi? (espetinho, café...)" /><input type="number" id="l-extra-val" inputmode="decimal" placeholder="R$" style="max-width:80px;"/><button class="add-btn" onclick="addExtra('leidiane')">+ Add</button></div></div>
-    <div class="card"><div class="card-title">Contas fixas</div><div id="l-fixos-list"></div><div class="add-row"><input type="text" id="l-fixo-desc" placeholder="Nome da conta" /><input type="number" id="l-fixo-val" inputmode="decimal" placeholder="R$" style="max-width:80px;"/><button class="add-btn" onclick="addFixo('leidiane')">+ Add</button></div></div>
-    <div class="card"><div class="card-title">Gastos por categoria</div><div class="chart-wrap"><canvas id="l-chart-cat"></canvas></div></div>
-    <div class="card"><div class="card-title">Evolução dos ganhos</div><div class="chart-wrap"><canvas id="l-chart-ganhos"></canvas></div></div>
-  </div>
-  <div class="section" id="sec-casal">
-    <div class="header"><div class="header-title">Casal 🏠</div><span class="sync-badge">🔄 Ao vivo</span></div>
-    <div class="casal-split">
-      <div class="person-card"><div class="person-avatar avatar-w">W</div><div class="person-name">Walisson</div><div class="person-row"><span class="person-row-label">Ganhos</span><span class="person-row-val" style="color:var(--green)" id="c-w-ganho">R$ 0</span></div><div class="person-row"><span class="person-row-label">Gastos</span><span class="person-row-val" style="color:var(--red)" id="c-w-gasto">R$ 0</span></div><div class="person-row"><span class="person-row-label">Saldo</span><span class="person-row-val" style="color:var(--blue)" id="c-w-saldo">R$ 0</span></div></div>
-      <div class="person-card"><div class="person-avatar avatar-l">L</div><div class="person-name">Leidiane</div><div class="person-row"><span class="person-row-label">Ganhos</span><span class="person-row-val" style="color:var(--green)" id="c-l-ganho">R$ 0</span></div><div class="person-row"><span class="person-row-label">Gastos</span><span class="person-row-val" style="color:var(--red)" id="c-l-gasto">R$ 0</span></div><div class="person-row"><span class="person-row-label">Saldo</span><span class="person-row-val" style="color:var(--blue)" id="c-l-saldo">R$ 0</span></div></div>
-    </div>
-    <div class="metrics-grid">
-      <div class="metric green"><div class="metric-label">RENDA TOTAL</div><div class="metric-value" id="c-ganho">R$ 0</div></div>
-      <div class="metric red"><div class="metric-label">TOTAL GASTO</div><div class="metric-value" id="c-gasto">R$ 0</div></div>
-      <div class="metric blue metric-wide"><div class="metric-label">SALDO DO CASAL</div><div class="metric-value" id="c-saldo">R$ 0</div></div>
-    </div>
-    <div class="card"><div class="card-title">Comparativo do casal</div><div class="chart-wrap"><canvas id="c-chart"></canvas></div></div>
-    <div class="card"><div class="card-title">Contas compartilhadas</div><div id="casal-fixos-list"></div><div class="add-row"><input type="text" id="cf-desc" placeholder="Nome da conta" /><input type="number" id="cf-val" inputmode="decimal" placeholder="R$" style="max-width:80px;"/><button class="add-btn" onclick="addCasalFixo()">+ Add</button></div><div class="total-row"><span class="total-label">Total fixo/mês</span><span class="total-value" style="color:var(--red)" id="casal-fixo-total">R$ 0</span></div></div>
-    <div class="card"><div class="card-title">Dívidas — construção da casa</div><div id="dividas-list"></div><div class="add-row"><input type="text" id="div-desc" placeholder="Nome da dívida" /><input type="number" id="div-val" inputmode="decimal" placeholder="R$/mês" style="max-width:80px;"/><button class="add-btn" onclick="addDivida()">+ Add</button></div><div class="total-row"><span class="total-label">Total dívidas/mês</span><span class="total-value" style="color:var(--red)" id="dividas-total">R$ 0</span></div></div>
-    <button class="save-month-btn" onclick="saveMonth()">💾 Fechar mês e salvar no histórico</button>
-    <button class="desconectar-btn" onclick="desconectar()">Desconectar deste casal</button>
-  </div>
-  <div class="section" id="sec-historico">
-    <div class="header"><div class="header-title">Histórico 📊</div></div>
-    <div class="card"><div class="card-title">Comparativo mensal</div><div class="chart-wrap" style="height:200px"><canvas id="hist-chart"></canvas></div></div>
-    <div id="hist-list"><div class="empty" style="padding:20px">Nenhum mês salvo ainda.</div></div>
-  </div>
-</div>
-<div class="bottom-nav">
-  <div class="nav-item active" onclick="showSection('walisson',0)"><div class="nav-icon">✂️</div><div class="nav-label">Walisson</div></div>
-  <div class="nav-item" onclick="showSection('leidiane',1)"><div class="nav-icon">💄</div><div class="nav-label">Leidiane</div></div>
-  <div class="nav-item" onclick="showSection('casal',2)"><div class="nav-icon">🏠</div><div class="nav-label">Casal</div></div>
-  <div class="nav-item" onclick="showSection('historico',3)"><div class="nav-icon">📊</div><div class="nav-label">Histórico</div></div>
-</div>
-</div>
+
+<script>
+// corrigir botão solo
+document.addEventListener('DOMContentLoaded',()=>{
+  const orig = window.selecionarModo;
+  window.selecionarModo = function(modo){
+    orig(modo);
+    document.getElementById('btn-solo-entrar').style.display = modo==='solo'?'block':'none';
+  }
+});
+</script>
 </body>
 </html>
