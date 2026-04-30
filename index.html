@@ -8,7 +8,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="Grana Pro"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet"/>
 <title>Grana Pro — Controle Financeiro</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script type="module">
@@ -156,9 +157,11 @@ function escutarDados(){
   _dados = { ganhos:[], gastos:[], fixos:[], historico:[] };
 
   onValue(ref(db,`grupos/${grupoCode}/membros`), snap=>{
-    membros = snap.val()
+    const raw = snap.val()
       ? Object.entries(snap.val()).map(([k,v])=>({...v, id:k}))
       : [];
+    const seen = new Set();
+    membros = raw.filter(m=>{ if(seen.has(m.id)) return false; seen.add(m.id); return true; });
     renderNavMembros();
   });
   onValue(ref(db,`grupos/${grupoCode}/ganhos`), snap=>{
@@ -440,6 +443,7 @@ function renderFixos(){
           <div class="fixo-nome ${f.pago?'riscado':''}">${f.nome}</div>
           <div class="fixo-sub">
             <span style="color:${membro.cor}">${membro.nome}</span>
+            ${f.dia ? ` · <span style="color:var(--text2);font-size:10px">Vence dia ${f.dia}</span>` : ''}
             ${f.pago
               ? ' · <span style="color:var(--gold);font-size:10px">Pago ✓</span>'
               : ' · <span style="color:var(--orange);font-size:10px">Pendente</span>'}
@@ -506,27 +510,30 @@ window.addGanho = async function(){
 }
 
 window.addGasto = async function(){
-  const desc = document.getElementById('inp-gasto-desc').value.trim();
   const val  = parseFloat(document.getElementById('inp-gasto-val').value);
+  const desc = document.getElementById('inp-gasto-desc').value.trim();
   const cat  = document.getElementById('inp-gasto-cat').value;
-  if(!desc||!val||val<=0){ showToast('Preencha descrição e valor','error'); return; }
+  if(!val||val<=0){ showToast('Informe o valor do gasto','error'); return; }
+  if(!desc){ showToast('Descreva o gasto','error'); return; }
   await push(ref(db,`grupos/${grupoCode}/gastos`),{
     pid:meuPerfil, nome:desc, valor:val, cat, data:today(), ts:Date.now()
   });
-  document.getElementById('inp-gasto-desc').value='';
   document.getElementById('inp-gasto-val').value='';
+  document.getElementById('inp-gasto-desc').value='';
   showToast('Gasto registrado!');
 }
 
 window.addFixo = async function(){
   const desc = document.getElementById('inp-fixo-desc').value.trim();
   const val  = parseFloat(document.getElementById('inp-fixo-val').value);
+  const dia  = parseInt(document.getElementById('inp-fixo-dia').value)||null;
   if(!desc||!val||val<=0){ showToast('Preencha descrição e valor','error'); return; }
   await push(ref(db,`grupos/${grupoCode}/fixos`),{
-    pid:meuPerfil, nome:desc, valor:val, pago:false, ts:Date.now()
+    pid:meuPerfil, nome:desc, valor:val, dia, pago:false, ts:Date.now()
   });
   document.getElementById('inp-fixo-desc').value='';
   document.getElementById('inp-fixo-val').value='';
+  document.getElementById('inp-fixo-dia').value='';
   showToast('Conta fixa adicionada!');
 }
 
@@ -576,7 +583,7 @@ function mkBar(id, labels, datasets){
     data:{labels, datasets},
     options:{
       responsive:true, maintainAspectRatio:false,
-      plugins:{legend:{labels:{color:'rgba(245,240,225,0.55)', font:{size:11, family:'DM Sans'}, boxWidth:10}}},
+      plugins:{legend:{labels:{color:'rgba(245,240,225,0.55)', font:{size:11, family:'Inter'}, boxWidth:10}}},
       scales:{
         x:{ticks:{color:'rgba(245,240,225,0.4)', font:{size:10}}, grid:{color:'rgba(212,175,55,0.05)'}},
         y:{ticks:{color:'rgba(245,240,225,0.4)', font:{size:10},
@@ -595,7 +602,7 @@ function mkDoughnut(id, labels, data, colors){
     data:{labels, datasets:[{data, backgroundColor:colors, borderWidth:0, hoverOffset:8}]},
     options:{
       responsive:true, maintainAspectRatio:false, cutout:'68%',
-      plugins:{legend:{position:'right', labels:{color:'rgba(245,240,225,0.6)', font:{size:11, family:'DM Sans'}, boxWidth:10}}}
+      plugins:{legend:{position:'right', labels:{color:'rgba(245,240,225,0.6)', font:{size:11, family:'Inter'}, boxWidth:10}}}
     }
   });
 }
@@ -610,8 +617,6 @@ function showScreen(id){
 init();
 </script>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap');
-
 :root{
   --bg:#070707;
   --surface:#0f0f0f;
@@ -637,7 +642,7 @@ init();
 }
 
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
-html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;overscroll-behavior:none;}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;overscroll-behavior:none;}
 
 /* ── SCREENS ── */
 .screen{display:none;flex-direction:column;min-height:100vh;}
@@ -647,7 +652,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .bv-logo-wrap{margin-bottom:28px;display:flex;flex-direction:column;align-items:center;gap:14px;}
 .bv-crown{font-size:52px;filter:drop-shadow(0 0 18px rgba(212,175,55,0.5));}
 .bv-titulo{
-  font-family:'Syne',sans-serif;font-size:36px;font-weight:800;letter-spacing:-1px;
+  font-family:'Inter',sans-serif;font-size:36px;font-weight:800;letter-spacing:-1px;
   background:linear-gradient(135deg,#f0c84a 0%,#d4af37 45%,#a88a20 100%);
   -webkit-background-clip:text;-webkit-text-fill-color:transparent;
 }
@@ -660,29 +665,29 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .modo-card:active{transform:scale(0.97);}
 .modo-card:hover{border-color:var(--gold-border);background:var(--gold-bg);}
 .modo-icon{font-size:30px;margin-bottom:10px;}
-.modo-label{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--text);}
+.modo-label{font-family:'Inter',sans-serif;font-size:15px;font-weight:700;color:var(--text);}
 .modo-desc{font-size:12px;color:var(--text3);margin-top:4px;}
 
 /* ── CADASTRO ── */
 #tela-cadastro{align-items:center;justify-content:center;padding:32px 24px;background:var(--bg);}
-.cad-titulo{font-family:'Syne',sans-serif;font-size:24px;font-weight:800;margin-bottom:6px;color:var(--text);}
+.cad-titulo{font-family:'Inter',sans-serif;font-size:24px;font-weight:800;margin-bottom:6px;color:var(--text);}
 .cad-sub{font-size:14px;color:var(--text2);margin-bottom:32px;text-align:center;}
 .cad-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;width:100%;max-width:360px;margin-bottom:12px;}
 .cad-label{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;}
 .inp{
   width:100%;background:var(--surface2);border:1px solid var(--border);
   border-radius:var(--radius-sm);padding:13px 14px;font-size:16px;color:var(--text);
-  outline:none;font-family:'DM Sans',sans-serif;transition:border-color 0.2s;margin-bottom:10px;
+  outline:none;font-family:'Inter',sans-serif;transition:border-color 0.2s;margin-bottom:10px;
 }
 .inp:focus{border-color:var(--gold);}
 .inp::placeholder{color:var(--text3);}
-.btn{width:100%;border:none;border-radius:var(--radius-sm);padding:14px;font-size:15px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:opacity 0.2s;}
+.btn{width:100%;border:none;border-radius:var(--radius-sm);padding:14px;font-size:15px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;transition:opacity 0.2s;}
 .btn:active{opacity:0.8;}
 .btn-gold{background:linear-gradient(135deg,var(--gold-light),var(--gold));color:#0a0800;font-weight:700;}
 .btn-green{background:var(--green);color:#020d05;font-weight:700;}
 .btn-ghost{background:var(--surface2);color:var(--text2);}
 .codigo-box{background:var(--surface2);border-radius:var(--radius-sm);padding:16px;text-align:center;margin:12px 0;border:1px solid var(--gold-border);}
-.codigo-val{font-family:'Syne',sans-serif;font-size:30px;font-weight:800;letter-spacing:8px;color:var(--gold);}
+.codigo-val{font-family:'Inter',sans-serif;font-size:30px;font-weight:800;letter-spacing:8px;color:var(--gold);}
 .codigo-hint{font-size:12px;color:var(--text3);margin-top:6px;}
 #box-codigo-exibido{display:none;}
 #btn-entrar-app{display:none;margin-top:4px;}
@@ -700,7 +705,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
   position:sticky;top:0;z-index:50;
 }
 .app-logo{
-  font-family:'Syne',sans-serif;font-size:22px;font-weight:800;letter-spacing:-0.5px;
+  font-family:'Inter',sans-serif;font-size:22px;font-weight:800;letter-spacing:-0.5px;
   background:linear-gradient(135deg,#f0c84a 0%,#d4af37 60%,#a88a20 100%);
   -webkit-background-clip:text;-webkit-text-fill-color:transparent;
 }
@@ -735,7 +740,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .nav-btn{
   flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;
   cursor:pointer;color:var(--text3);transition:color 0.15s;background:none;border:none;
-  font-family:'DM Sans',sans-serif;
+  font-family:'Inter',sans-serif;
 }
 .nav-btn.active{color:var(--gold);}
 .nav-icon{font-size:20px;line-height:1;}
@@ -746,7 +751,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 
 /* sec header */
 .sec-header{padding:18px 0 14px;}
-.sec-titulo{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;letter-spacing:-0.5px;}
+.sec-titulo{font-family:'Inter',sans-serif;font-size:22px;font-weight:800;letter-spacing:-0.5px;}
 .sec-subtitulo{font-size:13px;color:var(--text2);margin-top:3px;}
 
 /* cards */
@@ -767,7 +772,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .metric.r .metric-label{color:var(--red);}
 .metric.au .metric-label{color:var(--gold);}
 .metric.or .metric-label{color:var(--orange);}
-.metric-value{font-family:'Syne',sans-serif;font-size:20px;font-weight:700;letter-spacing:-0.5px;}
+.metric-value{font-family:'Inter',sans-serif;font-size:20px;font-weight:700;letter-spacing:-0.5px;}
 .metric.g .metric-value{color:var(--green);}
 .metric.r .metric-value{color:var(--red);}
 .metric.au .metric-value{color:var(--gold);}
@@ -797,8 +802,23 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .add-row .inp{margin-bottom:0;padding:10px 12px;font-size:14px;}
 .add-row select{
   background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);
-  padding:10px 8px;font-size:13px;color:var(--text);outline:none;font-family:'DM Sans',sans-serif;
+  padding:10px 8px;font-size:13px;color:var(--text);outline:none;font-family:'Inter',sans-serif;
 }
+
+/* gasto add — layout empilhado */
+.gasto-add-wrap{display:flex;flex-direction:column;gap:8px;margin-top:12px;padding-top:12px;border-top:0.5px solid var(--border);}
+.gasto-add-wrap .inp{margin-bottom:0;padding:10px 12px;font-size:14px;}
+.gasto-add-wrap textarea.inp{resize:vertical;min-height:72px;line-height:1.5;}
+.gasto-add-row{display:flex;gap:8px;align-items:center;}
+.gasto-add-row select{
+  flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);
+  padding:10px 8px;font-size:13px;color:var(--text);outline:none;font-family:'Inter',sans-serif;
+}
+
+/* fixo add */
+.fixo-add-wrap{margin-top:12px;padding-top:12px;border-top:0.5px solid var(--border);}
+.fixo-add-wrap .add-row{margin-top:0;padding-top:0;border-top:none;}
+.fixo-add-wrap .inp{margin-bottom:0;padding:10px 12px;font-size:14px;}
 .btn-add{
   background:linear-gradient(135deg,var(--gold-light),var(--gold));color:#0a0800;
   border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:13px;font-weight:700;
@@ -835,7 +855,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .fixo-resumo{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;}
 .fixo-stat{background:var(--surface2);border-radius:var(--radius-sm);padding:12px;text-align:center;border:1px solid var(--border);}
 .fixo-stat-label{font-size:10px;color:var(--text3);margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;}
-.fixo-stat-val{font-size:16px;font-weight:700;font-family:'Syne',sans-serif;}
+.fixo-stat-val{font-size:16px;font-weight:700;font-family:'Inter',sans-serif;}
 .fixo-hint{font-size:12px;color:var(--text3);text-align:center;padding:8px 0 4px;font-style:italic;}
 
 /* resumo */
@@ -843,7 +863,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .rm-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
 .rm-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;}
 .rm-nome{flex:1;font-size:14px;font-weight:600;}
-.rm-saldo{font-size:15px;font-weight:700;font-family:'Syne',sans-serif;}
+.rm-saldo{font-size:15px;font-weight:700;font-family:'Inter',sans-serif;}
 .rm-row{display:flex;justify-content:space-between;font-size:13px;padding:4px 0;color:var(--text2);}
 
 /* balanço separado */
@@ -854,7 +874,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 
 /* histórico */
 .hist-card{background:var(--surface2);border-radius:var(--radius-sm);padding:16px;margin-bottom:10px;border:1px solid var(--border);}
-.hist-mes{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:12px;color:var(--gold);}
+.hist-mes{font-family:'Inter',sans-serif;font-size:16px;font-weight:700;margin-bottom:12px;color:var(--gold);}
 .hist-row{display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:0.5px solid var(--border);color:var(--text2);}
 .hist-row:last-child{border-bottom:none;}
 .hist-row-saldo{padding-top:8px !important;margin-top:4px;}
@@ -867,13 +887,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 .btn-fechar{
   width:100%;background:var(--gold-bg);border:1px solid var(--gold-border);
   color:var(--gold);border-radius:var(--radius-sm);padding:14px;font-size:14px;font-weight:700;
-  cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:4px;letter-spacing:0.2px;
+  cursor:pointer;font-family:'Inter',sans-serif;margin-top:4px;letter-spacing:0.2px;
 }
 .btn-fechar:active{opacity:0.8;}
 .btn-sair{
   width:100%;background:transparent;border:none;color:var(--text3);
   border-radius:var(--radius-sm);padding:12px;font-size:13px;font-weight:500;
-  cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:6px;
+  cursor:pointer;font-family:'Inter',sans-serif;margin-top:6px;
 }
 .btn-sair:hover{color:var(--red);}
 
@@ -1025,20 +1045,22 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
       <div class="card" id="card-add-gasto">
         <div class="card-title">Gastos do dia</div>
         <div id="meu-gastos-list"><div class="empty">Nenhum gasto lançado</div></div>
-        <div class="add-row" id="row-add-gasto">
-          <input type="text"   class="inp" id="inp-gasto-desc" placeholder="O que foi?" style="flex:2"/>
-          <input type="number" class="inp" id="inp-gasto-val"  inputmode="decimal" placeholder="R$" style="flex:1;min-width:70px"/>
-          <select id="inp-gasto-cat" style="flex:1.4">
-            <option>Alimentação</option>
-            <option>Transporte</option>
-            <option>Lazer</option>
-            <option>Saúde</option>
-            <option>Compras</option>
-            <option>Moradia</option>
-            <option>Educação</option>
-            <option>Outros</option>
-          </select>
-          <button class="btn-add" onclick="addGasto()">+ Add</button>
+        <div class="gasto-add-wrap" id="row-add-gasto">
+          <input type="number" class="inp" id="inp-gasto-val" inputmode="decimal" placeholder="Valor (R$)"/>
+          <textarea class="inp" id="inp-gasto-desc" placeholder="Descreva o gasto com detalhes..." rows="3"></textarea>
+          <div class="gasto-add-row">
+            <select id="inp-gasto-cat">
+              <option>Alimentação</option>
+              <option>Transporte</option>
+              <option>Lazer</option>
+              <option>Saúde</option>
+              <option>Compras</option>
+              <option>Moradia</option>
+              <option>Educação</option>
+              <option>Outros</option>
+            </select>
+            <button class="btn-add" onclick="addGasto()">+ Add</button>
+          </div>
         </div>
       </div>
 
@@ -1171,10 +1193,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM San
 
       <div class="card" style="margin-top:8px">
         <div id="fixos-lista"><div class="empty">Nenhuma conta fixa cadastrada</div></div>
-        <div class="add-row">
-          <input type="text"   class="inp" id="inp-fixo-desc" placeholder="Nome da conta" style="flex:2"/>
-          <input type="number" class="inp" id="inp-fixo-val"  inputmode="decimal" placeholder="R$" style="flex:1;min-width:70px"/>
-          <button class="btn-add" onclick="addFixo()">+ Add</button>
+        <div class="fixo-add-wrap">
+          <div class="add-row" style="flex-wrap:nowrap">
+            <input type="text"   class="inp" id="inp-fixo-desc" placeholder="Nome da conta" style="flex:2;min-width:0"/>
+            <input type="number" class="inp" id="inp-fixo-val"  inputmode="decimal" placeholder="R$" style="flex:1;min-width:60px"/>
+            <input type="number" class="inp" id="inp-fixo-dia"  inputmode="numeric" placeholder="Dia" min="1" max="31" style="flex:0.6;min-width:50px"/>
+          </div>
+          <button class="btn-add" style="width:100%;margin-top:4px" onclick="addFixo()">+ Adicionar conta fixa</button>
         </div>
       </div>
 
