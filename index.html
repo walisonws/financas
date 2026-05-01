@@ -440,7 +440,8 @@ function renderResumoGrupo(){
 
 // ── ABA FIXOS ─────────────────────────────────────────────────────────────
 function renderFixos(){
-  const fixos    = filtrarMes(_dados.fixos);
+  let fixos = filtrarMes(_dados.fixos);
+  if(modoApp !== 'solo' && membroAtivo) fixos = fixos.filter(f=>f.pid===membroAtivo);
   const pendentes= fixos.filter(f=>!f.pago);
   const pagos    = fixos.filter(f=>f.pago);
   const tPend    = pendentes.reduce((a,b)=>a+(b.valor||0),0);
@@ -553,8 +554,9 @@ window.addFixo = async function(){
   const val  = parseFloat(document.getElementById('inp-fixo-val').value);
   const dia  = parseInt(document.getElementById('inp-fixo-dia').value)||null;
   if(!desc||!val||val<=0){ showToast('Preencha descrição e valor','error'); return; }
+  const pidFixo = (modoApp !== 'solo' && membroAtivo) ? membroAtivo : meuPerfil;
   await push(ref(db,`grupos/${grupoCode}/fixos`),{
-    pid:meuPerfil, nome:desc, valor:val, dia, pago:false, mes:getMesAtivo(), ts:Date.now()
+    pid:pidFixo, nome:desc, valor:val, dia, pago:false, mes:getMesAtivo(), ts:Date.now()
   });
   document.getElementById('inp-fixo-desc').value='';
   document.getElementById('inp-fixo-val').value='';
