@@ -40,11 +40,15 @@ let modoApp = null;
 let membros = [];
 let membroAtivo = null;
 let _dados = { ganhos:[], gastos:[], fixos:[], historico:[] };
+let mesAtivoIdx  = now.getMonth();
+let mesAtivoYear = now.getFullYear();
 
 // ── UTILS ──────────────────────────────────────────────────────────────────
 function fmt(n){ return 'R$ ' + Math.abs(Math.round(n||0)).toLocaleString('pt-BR'); }
 function fmtSigned(n){ const v=Math.round(n||0); return (v<0?'- ':'') + 'R$ ' + Math.abs(v).toLocaleString('pt-BR'); }
 function getML(){ return MESES[now.getMonth()] + ' ' + now.getFullYear(); }
+function getMesAtivo(){ return MESES[mesAtivoIdx] + ' ' + mesAtivoYear; }
+function filtrarMes(arr){ const m=getMesAtivo(); return (arr||[]).filter(x=>(x.mes||getML())===m); }
 function today(){ const d=new Date(); return d.getDate()+'/'+(d.getMonth()+1); }
 function gerarCodigo(){ return Math.random().toString(36).substring(2,8).toUpperCase(); }
 
@@ -120,16 +124,26 @@ window.entrarGrupo = async function(){
   if(!nome||!codigo){ showToast('Preencha nome e código!','error'); return; }
   const snap = await get(ref(db,`grupos/${codigo}/info`));
   if(!snap.exists()){ showToast('Código não encontrado!','error'); return; }
-  const membrosSnap  = await get(ref(db,`grupos/${codigo}/membros`));
+  const membrosSnap   = await get(ref(db,`grupos/${codigo}/membros`));
   const membrosAtuais = membrosSnap.val()||{};
-  const qtd   = Object.keys(membrosAtuais).length;
-  const cores = ['#d4af37','#f97316','#10b981','#ec4899','#3b82f6','#8b5cf6'];
-  const novoId = 'p'+(qtd+1);
-  grupoCode   = codigo;
-  meuPerfil   = novoId;
-  meuNome     = nome;
-  membroAtivo = novoId; // vai direto para o perfil de quem logou
-  await set(ref(db,`grupos/${codigo}/membros/${novoId}`),{nome, cor:cores[qtd]||'#d4af37', ts:Date.now()});
+  grupoCode = codigo;
+  meuNome   = nome;
+
+  // BUG FIX: verificar se já existe membro com o mesmo nome exato
+  const entradaExistente = Object.entries(membrosAtuais).find(([,v])=>v.nome===nome);
+  if(entradaExistente){
+    const [idExistente] = entradaExistente;
+    meuPerfil   = idExistente;
+    membroAtivo = idExistente;
+    showToast('Bem-vindo de volta, '+nome+'!');
+  } else {
+    const qtd   = Object.keys(membrosAtuais).length;
+    const cores = ['#d4af37','#f97316','#10b981','#ec4899','#3b82f6','#8b5cf6'];
+    const novoId = 'p'+(qtd+1);
+    meuPerfil   = novoId;
+    membroAtivo = novoId;
+    await set(ref(db,`grupos/${codigo}/membros/${novoId}`),{nome, cor:cores[qtd]||'#d4af37', ts:Date.now()});
+  }
   salvarLocal();
   iniciarApp();
 }
@@ -147,8 +161,7 @@ function salvarLocal(){
 function iniciarApp(){
   membroAtivo = meuPerfil; // sempre vai pro perfil de quem logou
   showScreen('app');
-  // mostra o mês no header
-  document.getElementById('header-mes').textContent = getML();
+  document.getElementById('header-mes').textContent = getMesAtivo();
   escutarDados();
 }
 
@@ -219,6 +232,18 @@ window.setMembroAtivo = function(id){
   renderTudo();
 }
 
+// ── NAV MÊS ────────────────────────────────────────────────────────────────
+window.mesAnterior = function(){
+  if(mesAtivoIdx===0){mesAtivoIdx=11;mesAtivoYear--;}else{mesAtivoIdx--;}
+  document.getElementById('header-mes').textContent = getMesAtivo();
+  renderTudo();
+}
+window.mesPosterior = function(){
+  if(mesAtivoIdx===11){mesAtivoIdx=0;mesAtivoYear++;}else{mesAtivoIdx++;}
+  document.getElementById('header-mes').textContent = getMesAtivo();
+  renderTudo();
+}
+
 // ── NAV ABAS ───────────────────────────────────────────────────────────────
 window.showSection = function(name, idx){
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
@@ -257,10 +282,10 @@ function renderMeu(){
   const subtitulo = document.getElementById('sec-meu-subtitulo');
   if(subtitulo) subtitulo.textContent = isEu ? 'Seu perfil financeiro' : 'Perfil de ' + membro.nome;
 
-  const ganhos     = (_dados.ganhos||[]).filter(g=>g.pid===membro.id);
-  const gastos     = (_dados.gastos||[]).filter(g=>g.pid===membro.id);
+  const ganhos     = filtrarMes(_dados.ganhos).filter(g=>g.pid===membro.id);
+  const gastos     = filtrarMes(_dados.gastos).filter(g=>g.pid===membro.id);
   // Contas fixas: só contabiliza no total quando marcadas como pagas
-  const fixosPagos = (_dados.fixos||[]).filter(f=>f.pid===membro.id && f.pago===true);
+  const fixosPagos = filtrarMes(_dados.fixos).filter(f=>f.pid===membro.id && f.pago===true);
 
   const totalGanho      = ganhos.reduce((a,b)=>a+(b.valor||0),0);
   const totalGastoDiario= gastos.reduce((a,b)=>a+(b.valor||0),0);
@@ -342,10 +367,10 @@ function renderResumo(){
 }
 
 function renderResumoSolo(){
-  const ganhos         = (_dados.ganhos||[]).filter(g=>g.pid===meuPerfil);
-  const gastos         = (_dados.gastos||[]).filter(g=>g.pid===meuPerfil);
-  const fixosPagos     = (_dados.fixos||[]).filter(f=>f.pid===meuPerfil && f.pago===true);
-  const fixosPendentes = (_dados.fixos||[]).filter(f=>f.pid===meuPerfil && !f.pago);
+  const ganhos         = filtrarMes(_dados.ganhos).filter(g=>g.pid===meuPerfil);
+  const gastos         = filtrarMes(_dados.gastos).filter(g=>g.pid===meuPerfil);
+  const fixosPagos     = filtrarMes(_dados.fixos).filter(f=>f.pid===meuPerfil && f.pago===true);
+  const fixosPendentes = filtrarMes(_dados.fixos).filter(f=>f.pid===meuPerfil && !f.pago);
 
   const tG         = ganhos.reduce((a,b)=>a+(b.valor||0),0);
   const tDiario    = gastos.reduce((a,b)=>a+(b.valor||0),0);
@@ -367,9 +392,9 @@ function renderResumoGrupo(){
   let totalGrupoGanho=0, totalGrupoDiario=0, totalGrupoFixo=0;
 
   lista.innerHTML = membros.map(m=>{
-    const ganhos     = (_dados.ganhos||[]).filter(g=>g.pid===m.id);
-    const gastos     = (_dados.gastos||[]).filter(g=>g.pid===m.id);
-    const fixosPagos = (_dados.fixos||[]).filter(f=>f.pid===m.id && f.pago===true);
+    const ganhos     = filtrarMes(_dados.ganhos).filter(g=>g.pid===m.id);
+    const gastos     = filtrarMes(_dados.gastos).filter(g=>g.pid===m.id);
+    const fixosPagos = filtrarMes(_dados.fixos).filter(f=>f.pid===m.id && f.pago===true);
     const tG      = ganhos.reduce((a,b)=>a+(b.valor||0),0);
     const tDiario = gastos.reduce((a,b)=>a+(b.valor||0),0);
     const tFixo   = fixosPagos.reduce((a,b)=>a+(b.valor||0),0);
@@ -400,13 +425,13 @@ function renderResumoGrupo(){
   if(membros.length > 1){
     mkBar('chart-resumo', membros.map(m=>m.nome),[
       {label:'Renda',
-       data:membros.map(m=>(_dados.ganhos||[]).filter(g=>g.pid===m.id).reduce((a,b)=>a+(b.valor||0),0)),
+       data:membros.map(m=>filtrarMes(_dados.ganhos).filter(g=>g.pid===m.id).reduce((a,b)=>a+(b.valor||0),0)),
        backgroundColor:membros.map(m=>m.cor+'99'), borderRadius:8},
       {label:'Gastos diários',
-       data:membros.map(m=>(_dados.gastos||[]).filter(x=>x.pid===m.id).reduce((a,b)=>a+(b.valor||0),0)),
+       data:membros.map(m=>filtrarMes(_dados.gastos).filter(x=>x.pid===m.id).reduce((a,b)=>a+(b.valor||0),0)),
        backgroundColor:'rgba(239,68,68,0.6)', borderRadius:8},
       {label:'Fixos pagos',
-       data:membros.map(m=>(_dados.fixos||[]).filter(x=>x.pid===m.id&&x.pago).reduce((a,b)=>a+(b.valor||0),0)),
+       data:membros.map(m=>filtrarMes(_dados.fixos).filter(x=>x.pid===m.id&&x.pago).reduce((a,b)=>a+(b.valor||0),0)),
        backgroundColor:'rgba(249,115,22,0.6)', borderRadius:8}
     ]);
     document.getElementById('card-chart-resumo').style.display = 'block';
@@ -415,7 +440,7 @@ function renderResumoGrupo(){
 
 // ── ABA FIXOS ─────────────────────────────────────────────────────────────
 function renderFixos(){
-  const fixos    = (_dados.fixos||[]);
+  const fixos    = filtrarMes(_dados.fixos);
   const pendentes= fixos.filter(f=>!f.pago);
   const pagos    = fixos.filter(f=>f.pago);
   const tPend    = pendentes.reduce((a,b)=>a+(b.valor||0),0);
@@ -503,7 +528,7 @@ window.addGanho = async function(){
   const val    = parseFloat(valEl.value);
   if(!val||val<=0){ showToast('Valor inválido','error'); return; }
   await push(ref(db,`grupos/${grupoCode}/ganhos`),{
-    pid:meuPerfil, desc:desc||'Ganho do dia', valor:val, data:today(), ts:Date.now()
+    pid:meuPerfil, desc:desc||'Ganho do dia', valor:val, data:today(), mes:getMesAtivo(), ts:Date.now()
   });
   descEl.value=''; valEl.value='';
   showToast('Ganho lançado!');
@@ -516,7 +541,7 @@ window.addGasto = async function(){
   if(!val||val<=0){ showToast('Informe o valor do gasto','error'); return; }
   if(!desc){ showToast('Descreva o gasto','error'); return; }
   await push(ref(db,`grupos/${grupoCode}/gastos`),{
-    pid:meuPerfil, nome:desc, valor:val, cat, data:today(), ts:Date.now()
+    pid:meuPerfil, nome:desc, valor:val, cat, data:today(), mes:getMesAtivo(), ts:Date.now()
   });
   document.getElementById('inp-gasto-val').value='';
   document.getElementById('inp-gasto-desc').value='';
@@ -529,7 +554,7 @@ window.addFixo = async function(){
   const dia  = parseInt(document.getElementById('inp-fixo-dia').value)||null;
   if(!desc||!val||val<=0){ showToast('Preencha descrição e valor','error'); return; }
   await push(ref(db,`grupos/${grupoCode}/fixos`),{
-    pid:meuPerfil, nome:desc, valor:val, dia, pago:false, ts:Date.now()
+    pid:meuPerfil, nome:desc, valor:val, dia, pago:false, mes:getMesAtivo(), ts:Date.now()
   });
   document.getElementById('inp-fixo-desc').value='';
   document.getElementById('inp-fixo-val').value='';
@@ -547,23 +572,22 @@ window.delGasto = async function(key){ await remove(ref(db,`grupos/${grupoCode}/
 window.delFixo  = async function(key){ await remove(ref(db,`grupos/${grupoCode}/fixos/${key}`));  showToast('Removido'); }
 
 window.fecharMes = async function(){
-  if(!confirm('Fechar o mês? Ganhos e gastos serão zerados.')) return;
-  const ganhos = _dados.ganhos||[];
-  const gastos = _dados.gastos||[];
-  const fixos  = _dados.fixos||[];
+  const mesLabel = getMesAtivo();
+  if(!confirm('Fechar '+mesLabel+'? Ganhos e gastos do mês serão removidos.')) return;
+  const ganhos = filtrarMes(_dados.ganhos);
+  const gastos = filtrarMes(_dados.gastos);
+  const fixos  = filtrarMes(_dados.fixos);
   const tG  = ganhos.reduce((a,b)=>a+(b.valor||0),0);
   const tGD = gastos.reduce((a,b)=>a+(b.valor||0),0);
   const tF  = fixos.filter(f=>f.pago).reduce((a,b)=>a+(b.valor||0),0);
   await push(ref(db,`grupos/${grupoCode}/historico`),{
-    mes:getML(), ts:Date.now(),
+    mes:mesLabel, ts:Date.now(),
     totalGanho:tG, totalGastoDiario:tGD, totalFixo:tF,
     totalGasto:tGD+tF, saldo:tG-tGD-tF
   });
-  await set(ref(db,`grupos/${grupoCode}/ganhos`),null);
-  await set(ref(db,`grupos/${grupoCode}/gastos`),null);
-  for(const f of fixos){
-    await update(ref(db,`grupos/${grupoCode}/fixos/${f._key}`),{pago:false});
-  }
+  for(const g of ganhos) await remove(ref(db,`grupos/${grupoCode}/ganhos/${g._key}`));
+  for(const g of gastos) await remove(ref(db,`grupos/${grupoCode}/gastos/${g._key}`));
+  for(const f of fixos)  await remove(ref(db,`grupos/${grupoCode}/fixos/${f._key}`));
   showToast('Mês fechado! Histórico salvo.');
 }
 
@@ -710,7 +734,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
   -webkit-background-clip:text;-webkit-text-fill-color:transparent;
 }
 .header-right{display:flex;align-items:center;gap:8px;}
-.header-mes{font-size:12px;color:var(--text3);font-weight:500;}
+.header-mes{font-size:12px;color:var(--gold);font-weight:600;min-width:80px;text-align:center;}
+.mes-nav{display:flex;align-items:center;gap:2px;}
+.mes-arrow{background:none;border:none;color:var(--gold);font-size:20px;cursor:pointer;padding:2px 5px;line-height:1;font-weight:700;opacity:0.75;}
+.mes-arrow:active{opacity:0.4;}
 .sync-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 7px var(--green);}
 .code-badge{
   font-size:11px;font-weight:600;color:var(--gold);background:var(--gold-bg);
@@ -989,7 +1016,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
     <div class="app-header">
       <div class="app-logo">Grana Pro</div>
       <div class="header-right">
-        <span class="header-mes" id="header-mes"></span>
+        <div class="mes-nav">
+          <button class="mes-arrow" onclick="mesAnterior()">&#8249;</button>
+          <span class="header-mes" id="header-mes"></span>
+          <button class="mes-arrow" onclick="mesPosterior()">&#8250;</button>
+        </div>
         <div class="sync-dot"></div>
         <div class="code-badge" onclick="alert('Código: '+localStorage.getItem('grana_code'))">código</div>
       </div>
