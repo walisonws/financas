@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#0a0800"/>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#1a1500"/>
+      <stop offset="100%" stop-color="#070707"/>
+    </radialGradient>
+  </defs>
+  <!-- Crown shape -->
+  <g transform="translate(256,256)">
+    <!-- Crown base -->
+    <rect x="-110" y="40" width="220" height="44" rx="10" fill="#d4af37"/>
+    <!-- Crown body points -->
+    <polygon points="-110,40 -110,-20 -60,30 0,-70 60,30 110,-20 110,40" fill="#d4af37"/>
+    <!-- Gems -->
+    <circle cx="0" cy="-52" r="14" fill="#f0c84a"/>
+    <circle cx="-78" cy="8" r="10" fill="#f0c84a"/>
+    <circle cx="78" cy="8" r="10" fill="#f0c84a"/>
+    <!-- Shine -->
+    <polygon points="-110,40 -110,-20 -60,30 0,-70 60,30 110,-20 110,40" fill="url(#shine)" opacity="0.3"/>
+    <defs>
+      <linearGradient id="shine" x1="0" y1="-70" x2="0" y2="84" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="white"/>
+        <stop offset="100%" stop-color="transparent"/>
+      </linearGradient>
+    </defs>
+  </g>
+</svg>

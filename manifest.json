@@ -1,0 +1,19 @@
+{
+  "name": "Grana Pro",
+  "short_name": "Grana Pro",
+  "description": "Controle financeiro premium pra você ou pra vocês",
+  "start_url": "/financas/",
+  "scope": "/financas/",
+  "display": "standalone",
+  "background_color": "#070707",
+  "theme_color": "#070707",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -7,6 +7,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="Grana Pro"/>
+<link rel="manifest" href="manifest.json"/>
+<link rel="apple-touch-icon" href="icon.svg"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet"/>
@@ -45,8 +47,8 @@ let mesAtivoIdx  = now.getMonth();
 let mesAtivoYear = now.getFullYear();
 
 // ── UTILS ──────────────────────────────────────────────────────────────────
-function fmt(n){ return 'R$ ' + Math.abs(Math.round(n||0)).toLocaleString('pt-BR'); }
-function fmtSigned(n){ const v=Math.round(n||0); return (v<0?'- ':'') + 'R$ ' + Math.abs(v).toLocaleString('pt-BR'); }
+function fmt(n){ const v=Math.abs(n||0); return 'R$ ' + v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtSigned(n){ const v=n||0; return (v<0?'- ':'') + 'R$ ' + Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function getML(){ return MESES[now.getMonth()] + ' ' + now.getFullYear(); }
 function getMesAtivo(){ return MESES[mesAtivoIdx] + ' ' + mesAtivoYear; }
 function filtrarMes(arr){ const m=getMesAtivo(); return (arr||[]).filter(x=>(x.mes||getML())===m); }
@@ -100,9 +102,11 @@ window.selecionarModo = function(modo){
   showScreen('tela-cadastro');
   document.getElementById('subtitulo-cadastro').textContent = modo==='solo'
     ? 'Crie sua conta pessoal' : 'Crie ou entre em um grupo';
-  document.getElementById('box-codigo-grupo').style.display = modo==='solo' ? 'none' : 'block';
-  document.getElementById('box-criar-grupo').style.display  = modo==='solo' ? 'none' : 'block';
-  document.getElementById('btn-solo-entrar').style.display  = modo==='solo' ? 'block' : 'none';
+  document.getElementById('box-codigo-grupo').style.display      = modo==='solo' ? 'none' : 'block';
+  document.getElementById('box-criar-grupo').style.display       = modo==='solo' ? 'none' : 'block';
+  document.getElementById('btn-solo-entrar').style.display       = modo==='solo' ? 'block' : 'none';
+  document.getElementById('box-recuperar-solo').style.display    = modo==='solo' ? 'block' : 'none';
+  document.getElementById('box-codigo-solo-exibido').style.display = 'none';
 }
 
 window.entrarSolo = async function(){
@@ -115,6 +119,28 @@ window.entrarSolo = async function(){
   await set(ref(db,`grupos/${grupoCode}/info`),{modo:'solo', criado:Date.now()});
   await set(ref(db,`grupos/${grupoCode}/membros/p1`),{nome, cor:'#d4af37', ts:Date.now()});
   salvarLocal();
+  document.getElementById('codigo-solo-gerado').textContent = grupoCode;
+  document.getElementById('box-codigo-solo-exibido').style.display = 'block';
+  document.getElementById('btn-solo-entrar').style.display = 'none';
+  document.getElementById('box-recuperar-solo').style.display = 'none';
+}
+
+window.recuperarSolo = async function(){
+  const codigo = document.getElementById('inp-codigo-solo').value.trim().toUpperCase();
+  if(!codigo){ showToast('Digite seu código!','error'); return; }
+  const snap = await get(ref(db,`grupos/${codigo}/info`));
+  if(!snap.exists()){ showToast('Código não encontrado!','error'); return; }
+  const info = snap.val();
+  if(info.modo !== 'solo'){ showToast('Este é um código de grupo, não individual','error'); return; }
+  const membrosSnap = await get(ref(db,`grupos/${codigo}/membros/p1`));
+  if(!membrosSnap.exists()){ showToast('Conta não encontrada','error'); return; }
+  grupoCode   = codigo;
+  meuPerfil   = 'p1';
+  membroAtivo = 'p1';
+  modoApp     = 'solo';
+  meuNome     = membrosSnap.val().nome || 'Você';
+  salvarLocal();
+  showToast('Bem-vindo de volta, '+meuNome+'!');
   iniciarApp();
 }
 
@@ -358,6 +384,9 @@ function renderMeu(){
   // SALDO HERO
   const saldoEl = document.getElementById('meu-saldo');
   saldoEl.textContent = fmtSigned(saldo);
+  saldoEl.classList.remove('pop');
+  requestAnimationFrame(()=>saldoEl.classList.add('pop'));
+  setTimeout(()=>saldoEl.classList.remove('pop'), 400);
   saldoEl.classList.toggle('negativo', saldo < 0);
 
   const labelEl = document.getElementById('saldo-label');
@@ -418,6 +447,26 @@ function renderMeu(){
     catCard.style.display = 'none';
   }
 
+  // ALERTA CONTAS A VENCER
+  const alertaEl = document.getElementById('alerta-vencimento');
+  if(alertaEl && isEu){
+    const hoje = new Date();
+    const diaHoje = hoje.getDate();
+    const fixosPendentes = filtrarMes(_dados.fixos).filter(f=>f.pid===membro.id && !f.pago && f.dia);
+    const proximas = fixosPendentes.filter(f=>{
+      const diff = f.dia - diaHoje;
+      return diff >= 0 && diff <= 7;
+    }).sort((a,b)=>a.dia-b.dia);
+    if(proximas.length > 0){
+      const nomes = proximas.map(f=>`${f.nome} (dia ${f.dia})`).join(', ');
+      const cor = proximas.some(f=>f.dia<=diaHoje+2) ? 'var(--red)' : 'var(--orange)';
+      alertaEl.innerHTML = `<div class="alerta-venc" style="border-color:${cor}">⚠️ Vence em breve: <strong>${nomes}</strong></div>`;
+      alertaEl.style.display = 'block';
+    } else {
+      alertaEl.style.display = 'none';
+    }
+  }
+
   // ÚLTIMAS MOVIMENTAÇÕES — combina ganhos+gastos por ts desc
   const txCard = document.getElementById('card-tx');
   const tx = [
@@ -447,6 +496,64 @@ function renderMeu(){
   }
 }
 
+// ── NUMPAD MAQUININHA ──────────────────────────────────────────────────────
+let _numpadCents = 0;
+
+function numpadSync(){
+  const reais = _numpadCents / 100;
+  document.getElementById('numpad-val').textContent =
+    reais.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  document.getElementById('modal-valor').value = reais;
+}
+
+window.numpadDigit = function(d){
+  if(_numpadCents >= 9999999) return;
+  _numpadCents = _numpadCents * 10 + parseInt(d);
+  numpadSync();
+}
+
+window.numpadBack = function(){
+  _numpadCents = Math.floor(_numpadCents / 10);
+  numpadSync();
+}
+
+window.numpadClear = function(){
+  _numpadCents = 0;
+  numpadSync();
+}
+
+function numpadSet(valor){
+  _numpadCents = Math.round((valor||0) * 100);
+  numpadSync();
+}
+
+// ── NUMPAD CONTAS FIXAS ────────────────────────────────────────────────────
+let _numpadFixoCents = 0;
+
+function numpadFixoSync(){
+  const reais = _numpadFixoCents / 100;
+  document.getElementById('numpad-fixo-val').textContent =
+    reais.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  document.getElementById('modal-fixo-valor').value = reais;
+}
+window.numpadFixoDigit = function(d){
+  if(_numpadFixoCents >= 9999999) return;
+  _numpadFixoCents = _numpadFixoCents * 10 + parseInt(d);
+  numpadFixoSync();
+}
+window.numpadFixoBack = function(){
+  _numpadFixoCents = Math.floor(_numpadFixoCents / 10);
+  numpadFixoSync();
+}
+window.numpadFixoClear = function(){
+  _numpadFixoCents = 0;
+  numpadFixoSync();
+}
+function numpadFixoSet(valor){
+  _numpadFixoCents = Math.round((valor||0) * 100);
+  numpadFixoSync();
+}
+
 // ── MODAL RECEBI/GASTEI (com modo edição) ──────────────────────────────────
 let _modalTipo = 'in';
 let _modalCat  = 'Alimentação';
@@ -473,7 +580,7 @@ window.abrirModal = function(tipo, editKey){
     titulo.textContent = tipo==='in' ? '✏️ Editar entrada' : '✏️ Editar gasto';
     sub.textContent    = 'Atualize os dados';
     btnConf.textContent= 'Salvar alterações';
-    valEl.value  = item.valor || '';
+    numpadSet(item.valor || 0);
     descEl.value = (tipo==='in' ? item.desc : item.nome) || '';
     if(tipo==='out') _modalCat = item.cat || 'Alimentação';
   } else {
@@ -481,13 +588,32 @@ window.abrirModal = function(tipo, editKey){
     titulo.textContent = tipo==='in' ? '💰 Recebi' : '💸 Gastei';
     sub.textContent    = tipo==='in' ? 'Lançar entrada de dinheiro' : 'Lançar saída de dinheiro';
     btnConf.textContent= tipo==='in' ? 'Confirmar entrada' : 'Confirmar gasto';
-    valEl.value  = '';
+    numpadClear();
     descEl.value = '';
   }
 
   titulo.className   = 'modal-titulo ' + tipo;
   cats.style.display = tipo==='out' ? 'block' : 'none';
   btnConf.className  = 'modal-btn modal-btn-confirm ' + tipo;
+
+  // VALORES RÁPIDOS (só no Recebi, com base no histórico)
+  const quickEl = document.getElementById('modal-quick-vals');
+  if(quickEl){
+    if(tipo==='in' && !_modalEditKey){
+      const freq = {};
+      _dados.ganhos.forEach(g=>{ if(g.valor) freq[g.valor]=(freq[g.valor]||0)+1; });
+      const top3 = Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([v])=>parseFloat(v));
+      if(top3.length > 0){
+        quickEl.innerHTML = '<div class="quick-label">Rápido:</div>' +
+          top3.map(v=>`<button class="quick-val-btn" onclick="numpadSet(${v})">${fmt(v)}</button>`).join('');
+        quickEl.style.display = 'flex';
+      } else {
+        quickEl.style.display = 'none';
+      }
+    } else {
+      quickEl.style.display = 'none';
+    }
+  }
 
   renderModalCats();
   overlay.classList.add('show');
@@ -604,9 +730,9 @@ window.abrirEditarFixo = function(key){
   _editFixoKey = key;
   _fixoCat     = f.cat || 'Moradia';
   document.getElementById('modal-fixo-titulo').textContent = '✏️ Editar conta';
-  document.getElementById('modal-fixo-nome').value  = f.nome  || '';
-  document.getElementById('modal-fixo-valor').value = f.valor || '';
-  document.getElementById('modal-fixo-dia').value   = f.dia   || '';
+  document.getElementById('modal-fixo-nome').value = f.nome || '';
+  numpadFixoSet(f.valor || 0);
+  document.getElementById('modal-fixo-dia').value  = f.dia  || '';
   document.getElementById('modal-fixo-btn').textContent = 'Salvar alterações';
   renderModalCatsFixo();
   document.getElementById('modal-fixo').classList.add('show');
@@ -617,9 +743,9 @@ window.abrirCriarFixo = function(){
   _editFixoKey = null;
   _fixoCat     = 'Moradia';
   document.getElementById('modal-fixo-titulo').textContent = '📋 Nova conta';
-  document.getElementById('modal-fixo-nome').value  = '';
-  document.getElementById('modal-fixo-valor').value = '';
-  document.getElementById('modal-fixo-dia').value   = '';
+  document.getElementById('modal-fixo-nome').value = '';
+  numpadFixoClear();
+  document.getElementById('modal-fixo-dia').value  = '';
   document.getElementById('modal-fixo-btn').textContent = 'Adicionar conta';
   renderModalCatsFixo();
   document.getElementById('modal-fixo').classList.add('show');
@@ -925,8 +1051,56 @@ window.delHistorico = async function(key, mes){
   showToast('Histórico removido');
 }
 
+window.compartilharResumo = async function(){
+  const mes = getMesAtivo();
+  const ganhos    = filtrarMes(_dados.ganhos).filter(g=>g.pid===meuPerfil);
+  const gastos    = filtrarMes(_dados.gastos).filter(g=>g.pid===meuPerfil);
+  const fixosPagos= filtrarMes(_dados.fixos).filter(f=>f.pid===meuPerfil && f.pago);
+  const tG  = ganhos.reduce((a,b)=>a+(b.valor||0),0);
+  const tD  = gastos.reduce((a,b)=>a+(b.valor||0),0);
+  const tF  = fixosPagos.reduce((a,b)=>a+(b.valor||0),0);
+  const saldo = tG - tD - tF;
+
+  const linha = (l,v) => `${l}: ${v}`;
+  const texto = [
+    `📊 *Grana Pro — ${mes}*`,
+    `👤 ${meuNome}`,
+    ``,
+    linha('💰 Recebi', fmt(tG)),
+    linha('💸 Gastos diários', fmt(tD)),
+    linha('📋 Contas fixas pagas', fmt(tF)),
+    ``,
+    linha(saldo>=0 ? '✅ Saldo' : '❌ Saldo', fmtSigned(saldo)),
+  ].join('\n');
+
+  if(navigator.share){
+    try{ await navigator.share({title:'Grana Pro — '+mes, text:texto}); return; }catch(e){}
+  }
+  try{ await navigator.clipboard.writeText(texto); showToast('Resumo copiado!'); }
+  catch(e){ showToast('Não foi possível compartilhar','error'); }
+}
+
+window.compartilharCodigoTexto = async function(codigo){
+  const texto = `Meu código do Grana Pro: *${codigo}*\nAcesse: https://walisonws.github.io/financas/`;
+  if(navigator.share){
+    try{ await navigator.share({title:'Grana Pro', text:texto}); return; }catch(e){}
+  }
+  try{ await navigator.clipboard.writeText(codigo); showToast('Código copiado!'); }
+  catch(e){ showToast('Código: '+codigo); }
+}
+
+window.compartilharCodigo = function(){
+  const code = localStorage.getItem('grana_code');
+  if(!code) return;
+  compartilharCodigoTexto(code);
+}
+
 window.desconectar = function(){
-  if(!confirm('Sair da conta?')) return;
+  const code = localStorage.getItem('grana_code');
+  const msg = modoApp==='solo'
+    ? `Seu código de acesso é:\n\n${code}\n\nGuarde-o para recuperar sua conta depois.\n\nDeseja sair?`
+    : 'Sair da conta?';
+  if(!confirm(msg)) return;
   ['grana_code','grana_perfil','grana_nome','grana_modo'].forEach(k=>localStorage.removeItem(k));
   location.reload();
 }
@@ -1313,6 +1487,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
   background:linear-gradient(180deg,#ff7a7a 0%,#ef4444 100%);
   -webkit-background-clip:text;-webkit-text-fill-color:transparent;
 }
+@keyframes saldo-pop{
+  0%{transform:scale(1)}
+  40%{transform:scale(1.12)}
+  70%{transform:scale(0.96)}
+  100%{transform:scale(1)}
+}
+.saldo-valor.pop{animation:saldo-pop 0.35s ease;}
 .mensagem-status{
   display:inline-flex;align-items:center;gap:6px;
   padding:7px 14px;border-radius:20px;
@@ -1328,6 +1509,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
   background:var(--red-bg);color:var(--red);
   border-color:rgba(239,68,68,0.25);
 }
+.alerta-venc{
+  background:#1a1000;border:1px solid var(--orange);border-radius:12px;
+  padding:10px 14px;font-size:13px;color:var(--text2);margin-bottom:4px;
+  line-height:1.4;
+}
+.alerta-venc strong{color:var(--text1);}
 
 /* BOTÕES GRANDES RECEBI/GASTEI */
 .botoes-acao{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:16px 0 12px;}
@@ -1458,6 +1645,17 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 }
 .modal-input:focus{border-color:var(--gold);}
 .modal-input.big{font-size:28px;font-weight:700;text-align:center;letter-spacing:-0.5px;padding:18px 14px;}
+.numpad-display{text-align:center;font-size:36px;font-weight:800;color:var(--text1);padding:16px 0 8px;letter-spacing:-1px;}
+.numpad-display span{color:inherit;}
+.numpad-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0 12px;}
+.numpad-key{background:var(--surface2);border:none;border-radius:12px;color:var(--text1);font-size:22px;font-weight:600;font-family:'Inter',sans-serif;padding:16px 0;cursor:pointer;transition:background 0.1s,transform 0.08s;-webkit-tap-highlight-color:transparent;}
+.numpad-key:active{background:var(--surface3);transform:scale(0.93);}
+.numpad-back{font-size:20px;color:var(--text2);}
+.numpad-clear{font-size:16px;font-weight:700;color:var(--text3);}
+#modal-quick-vals{display:flex;align-items:center;gap:8px;margin:4px 0 10px;flex-wrap:wrap;}
+.quick-label{font-size:11px;color:var(--text3);white-space:nowrap;}
+.quick-val-btn{background:var(--surface2);border:1px solid var(--border);border-radius:20px;color:var(--gold);font-size:13px;font-weight:600;font-family:'Inter',sans-serif;padding:6px 14px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.quick-val-btn:active{background:var(--surface3);}
 .modal-cats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px;}
 .cat-pick{
   display:flex;flex-direction:column;align-items:center;gap:3px;
@@ -1529,6 +1727,17 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
     <!-- Solo -->
     <button class="btn btn-gold" id="btn-solo-entrar" style="display:none" onclick="entrarSolo()">Começar →</button>
 
+    <!-- Solo: código gerado após criar conta -->
+    <div id="box-codigo-solo-exibido" style="display:none">
+      <div class="codigo-box" style="border-color:var(--green)">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">⚠️ Salve seu código de acesso!</div>
+        <div class="codigo-val" id="codigo-solo-gerado"></div>
+        <div class="codigo-hint">Você vai precisar dele se sair da conta</div>
+      </div>
+      <button class="btn btn-ghost" onclick="compartilharCodigoTexto(document.getElementById('codigo-solo-gerado').textContent)">📤 Salvar / Compartilhar código</button>
+      <button class="btn btn-green" onclick="irParaApp()">Entrar no app ✓</button>
+    </div>
+
     <!-- Grupo: criar -->
     <div id="box-criar-grupo" style="display:none">
       <button class="btn btn-gold" onclick="criarGrupo()">Criar grupo e gerar código</button>
@@ -1538,9 +1747,18 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
           <div class="codigo-val" id="codigo-gerado"></div>
           <div class="codigo-hint">Compartilhe com as outras pessoas!</div>
         </div>
+        <button class="btn btn-green" onclick="compartilharCodigoTexto(document.getElementById('codigo-gerado').textContent)">📤 Compartilhar código</button>
         <button class="btn btn-green" id="btn-entrar-app" onclick="irParaApp()">Entrar no app ✓</button>
       </div>
     </div>
+  </div>
+
+  <!-- Solo: recuperar conta existente -->
+  <div class="cad-card" id="box-recuperar-solo" style="display:none">
+    <div class="cad-label" style="color:var(--text3)">Já tem uma conta?</div>
+    <input class="inp" id="inp-codigo-solo" placeholder="Cole seu código aqui"
+           style="letter-spacing:3px;text-transform:uppercase;"/>
+    <button class="btn btn-ghost" onclick="recuperarSolo()">Recuperar conta →</button>
   </div>
 
   <!-- Grupo: entrar com código -->
@@ -1570,7 +1788,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
           <button class="mes-arrow" onclick="mesPosterior()">&#8250;</button>
         </div>
         <div class="sync-dot"></div>
-        <div class="code-badge" onclick="alert('Código: '+localStorage.getItem('grana_code'))">código</div>
+        <div class="code-badge" onclick="compartilharCodigo()">código</div>
       </div>
     </div>
 
@@ -1588,6 +1806,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         <div class="saldo-valor" id="meu-saldo">R$ 0</div>
         <div class="mensagem-status" id="msg-status">Comece lançando uma entrada</div>
       </div>
+
+      <!-- ALERTA CONTAS A VENCER -->
+      <div id="alerta-vencimento" style="display:none"></div>
 
       <!-- BOTÕES GRANDES -->
       <div class="botoes-acao" id="botoes-acao">
@@ -1683,6 +1904,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         </div>
 
         <button class="btn-fechar" onclick="fecharMes()">💾 Fechar mês e salvar histórico</button>
+        <button class="btn-fechar" style="background:var(--surface2);color:var(--text2);margin-top:6px" onclick="compartilharResumo()">📤 Compartilhar resumo</button>
         <button class="btn-sair"   onclick="desconectar()">Sair da conta</button>
       </div>
 
@@ -1823,8 +2045,23 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
     <label class="modal-label">Nome da conta</label>
     <input type="text" class="modal-input" id="modal-fixo-nome" placeholder="Ex: aluguel, fatura cartão..."/>
 
-    <label class="modal-label">Valor (R$)</label>
-    <input type="number" inputmode="decimal" class="modal-input" id="modal-fixo-valor" placeholder="0"/>
+    <div class="numpad-display" id="numpad-fixo-display">R$ <span id="numpad-fixo-val">0,00</span></div>
+    <input type="hidden" id="modal-fixo-valor"/>
+
+    <div class="numpad-grid">
+      <button class="numpad-key" onclick="numpadFixoDigit('1')">1</button>
+      <button class="numpad-key" onclick="numpadFixoDigit('2')">2</button>
+      <button class="numpad-key" onclick="numpadFixoDigit('3')">3</button>
+      <button class="numpad-key" onclick="numpadFixoDigit('4')">4</button>
+      <button class="numpad-key" onclick="numpadFixoDigit('5')">5</button>
+      <button class="numpad-key" onclick="numpadFixoDigit('6')">6</button>
+      <button class="numpad-key" onclick="numpadFixoDigit('7')">7</button>
+      <button class="numpad-key" onclick="numpadFixoDigit('8')">8</button>
+      <button class="numpad-key" onclick="numpadFixoDigit('9')">9</button>
+      <button class="numpad-key numpad-back" onclick="numpadFixoBack()">⌫</button>
+      <button class="numpad-key" onclick="numpadFixoDigit('0')">0</button>
+      <button class="numpad-key numpad-clear" onclick="numpadFixoClear()">C</button>
+    </div>
 
     <label class="modal-label">Dia do vencimento (opcional)</label>
     <input type="number" inputmode="numeric" class="modal-input" id="modal-fixo-dia" min="1" max="31" placeholder="Ex: 5"/>
@@ -1848,8 +2085,25 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
     <div class="modal-titulo in" id="modal-titulo">💰 Recebi</div>
     <div class="modal-sub" id="modal-sub">Lançar entrada de dinheiro</div>
 
-    <label class="modal-label">Valor (R$)</label>
-    <input type="number" inputmode="decimal" class="modal-input big" id="modal-valor" placeholder="0"/>
+    <div class="numpad-display" id="numpad-display">R$ <span id="numpad-val">0,00</span></div>
+    <input type="hidden" id="modal-valor"/>
+
+    <div class="numpad-grid">
+      <button class="numpad-key" onclick="numpadDigit('1')">1</button>
+      <button class="numpad-key" onclick="numpadDigit('2')">2</button>
+      <button class="numpad-key" onclick="numpadDigit('3')">3</button>
+      <button class="numpad-key" onclick="numpadDigit('4')">4</button>
+      <button class="numpad-key" onclick="numpadDigit('5')">5</button>
+      <button class="numpad-key" onclick="numpadDigit('6')">6</button>
+      <button class="numpad-key" onclick="numpadDigit('7')">7</button>
+      <button class="numpad-key" onclick="numpadDigit('8')">8</button>
+      <button class="numpad-key" onclick="numpadDigit('9')">9</button>
+      <button class="numpad-key numpad-back" onclick="numpadBack()">⌫</button>
+      <button class="numpad-key" onclick="numpadDigit('0')">0</button>
+      <button class="numpad-key numpad-clear" onclick="numpadClear()">C</button>
+    </div>
+
+    <div id="modal-quick-vals" style="display:none"></div>
 
     <label class="modal-label">Descrição</label>
     <input type="text" class="modal-input" id="modal-desc" placeholder="Ex: corte cliente, almoço..."/>
@@ -1867,4 +2121,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 </div>
 
 </body>
+<script>
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/financas/sw.js');
+  });
+}
+</script>
 </html>
