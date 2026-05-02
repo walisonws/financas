@@ -40,6 +40,7 @@ let modoApp = null;
 let membros = [];
 let membroAtivo = null;
 let _dados = { ganhos:[], gastos:[], fixos:[], historico:[] };
+let _customCats = [];
 let mesAtivoIdx  = now.getMonth();
 let mesAtivoYear = now.getFullYear();
 
@@ -215,10 +216,18 @@ function escutarDados(){
   });
   onValue(ref(db,`grupos/${grupoCode}/historico`), snap=>{
     _dados.historico = snap.val()
-      ? Object.values(snap.val()).sort((a,b)=>b.ts-a.ts)
+      ? Object.entries(snap.val()).map(([k,v])=>({...v, _key:k})).sort((a,b)=>b.ts-a.ts)
       : [];
     const secHist = document.getElementById('sec-historico');
     if(secHist && secHist.classList.contains('active')) renderHistorico();
+  });
+  onValue(ref(db,`grupos/${grupoCode}/categorias`), snap=>{
+    _customCats = snap.val()
+      ? Object.entries(snap.val()).map(([k,v])=>({...v, _key:k}))
+      : [];
+    // Re-renderiza pickers se modais estiverem abertos
+    if(document.getElementById('modal-tx').classList.contains('show')) renderModalCats();
+    if(document.getElementById('modal-fixo').classList.contains('show')) renderModalCatsFixo();
   });
 }
 
@@ -371,7 +380,7 @@ function renderMeu(){
 
   // ONDE MAIS GASTA — top 3
   const catCard = document.getElementById('card-cats');
-  const todosGastos = [...gastos, ...fixosPagos.map(f=>({...f, cat:f.cat||'Moradia', nome:f.nome}))];
+  const todosGastos = [...gastos, ...fixosPagos.map(f=>({...f, cat:f.cat||'Outros', nome:f.nome}))];
   if(todosGastos.length > 0){
     const catTotais = {};
     todosGastos.forEach(g=>{ const c=g.cat||'Outros'; catTotais[c]=(catTotais[c]||0)+(g.valor||0); });
@@ -379,9 +388,10 @@ function renderMeu(){
     const totalCats = sorted.reduce((a,b)=>a+b[1],0);
     const top3 = sorted.slice(0,3);
     const maxVal = top3[0][1];
+    const allCats = getAllCats();
 
     document.getElementById('cats-lista').innerHTML = top3.map(([cat, val])=>{
-      const info = CAT_INFO[cat] || {emoji:'💼', color:'#8a7d65'};
+      const info = allCats[cat] || {emoji:'💼', color:'#8a7d65'};
       const pct  = Math.round(val/totalCats*100);
       const wid  = Math.round(val/maxVal*100);
       return `
@@ -489,19 +499,64 @@ window.fecharModal = function(){
   _modalEditKey = null;
 }
 
+function getAllCats(){
+  const result = {...CAT_INFO};
+  _customCats.forEach(c=>{
+    result[c.nome] = {emoji:c.emoji, color:c.color||'#d4af37', custom:true, _key:c._key};
+  });
+  return result;
+}
+
 function renderModalCats(){
   const cont = document.getElementById('modal-cats');
-  cont.innerHTML = Object.entries(CAT_INFO).map(([nome,info])=>`
-    <div class="cat-pick ${nome===_modalCat?'active':''}" onclick="selecionarCat('${nome}')">
+  if(!cont) return;
+  const all = getAllCats();
+  const escapar = s => String(s).replace(/'/g,"\\'");
+  cont.innerHTML = Object.entries(all).map(([nome,info])=>{
+    const removerBtn = info.custom
+      ? `<button class="cat-del" onclick="event.stopPropagation();removerCategoria('${info._key}','${escapar(nome)}')">×</button>`
+      : '';
+    return `
+    <div class="cat-pick ${nome===_modalCat?'active':''}" onclick="selecionarCat('${escapar(nome)}')">
       <div class="cat-pick-emoji">${info.emoji}</div>
       <div class="cat-pick-label">${nome}</div>
-    </div>
-  `).join('');
+      ${removerBtn}
+    </div>`;
+  }).join('') + `
+    <div class="cat-pick cat-nova" onclick="criarCategoria('tx')">
+      <div class="cat-pick-emoji">＋</div>
+      <div class="cat-pick-label">Nova</div>
+    </div>`;
 }
 
 window.selecionarCat = function(nome){
   _modalCat = nome;
   renderModalCats();
+}
+
+window.criarCategoria = async function(origem){
+  const emoji = (prompt('Digite um emoji pra categoria (ex: 💼 🏋️ 💳):') || '').trim();
+  if(!emoji) return;
+  const nome  = (prompt('Digite o nome da categoria:') || '').trim();
+  if(!nome) return;
+  // Evita duplicada
+  const all = getAllCats();
+  if(all[nome]){ showToast('Já existe categoria com esse nome','error'); return; }
+  await push(ref(db,`grupos/${grupoCode}/categorias`),{nome, emoji, color:'#d4af37'});
+  if(origem === 'tx'){ _modalCat = nome; renderModalCats(); }
+  else                { _fixoCat  = nome; renderModalCatsFixo(); }
+  showToast('Categoria criada! ✓');
+}
+
+window.removerCategoria = async function(key, nome){
+  if(!confirm(`Remover a categoria "${nome}"?\n\nGastos com essa categoria continuam, mas voltam pra "Outros".`)) return;
+  await remove(ref(db,`grupos/${grupoCode}/categorias/${key}`));
+  // Se tava selecionada, volta pra Outros
+  if(_modalCat === nome) _modalCat = 'Outros';
+  if(_fixoCat  === nome) _fixoCat  = 'Outros';
+  renderModalCats();
+  renderModalCatsFixo();
+  showToast('Categoria removida');
 }
 
 window.confirmarModal = async function(){
@@ -535,21 +590,38 @@ window.confirmarModal = async function(){
   fecharModal();
 }
 
-// ── MODAL EDITAR FIXO ──────────────────────────────────────────────────────
+// ── MODAL CRIAR/EDITAR FIXO ────────────────────────────────────────────────
 let _editFixoKey = null;
+let _fixoCat     = 'Moradia';
 
 window.abrirEditarFixo = function(key){
   const f = _dados.fixos.find(x=>x._key===key);
   if(!f){ showToast('Conta não encontrada','error'); return; }
-  // Só permite editar se for do membro logado (no modo grupo)
   if(modoApp !== 'solo' && f.pid !== meuPerfil){
     showToast('Você só pode editar suas próprias contas','error');
     return;
   }
   _editFixoKey = key;
-  document.getElementById('modal-fixo-nome').value  = f.nome || '';
+  _fixoCat     = f.cat || 'Moradia';
+  document.getElementById('modal-fixo-titulo').textContent = '✏️ Editar conta';
+  document.getElementById('modal-fixo-nome').value  = f.nome  || '';
   document.getElementById('modal-fixo-valor').value = f.valor || '';
-  document.getElementById('modal-fixo-dia').value   = f.dia || '';
+  document.getElementById('modal-fixo-dia').value   = f.dia   || '';
+  document.getElementById('modal-fixo-btn').textContent = 'Salvar alterações';
+  renderModalCatsFixo();
+  document.getElementById('modal-fixo').classList.add('show');
+  setTimeout(()=>document.getElementById('modal-fixo-nome').focus(), 100);
+}
+
+window.abrirCriarFixo = function(){
+  _editFixoKey = null;
+  _fixoCat     = 'Moradia';
+  document.getElementById('modal-fixo-titulo').textContent = '📋 Nova conta';
+  document.getElementById('modal-fixo-nome').value  = '';
+  document.getElementById('modal-fixo-valor').value = '';
+  document.getElementById('modal-fixo-dia').value   = '';
+  document.getElementById('modal-fixo-btn').textContent = 'Adicionar conta';
+  renderModalCatsFixo();
   document.getElementById('modal-fixo').classList.add('show');
   setTimeout(()=>document.getElementById('modal-fixo-nome').focus(), 100);
 }
@@ -559,13 +631,50 @@ window.fecharModalFixo = function(){
   _editFixoKey = null;
 }
 
+function renderModalCatsFixo(){
+  const cont = document.getElementById('modal-fixo-cats');
+  if(!cont) return;
+  const all = getAllCats();
+  const escapar = s => String(s).replace(/'/g,"\\'");
+  cont.innerHTML = Object.entries(all).map(([nome,info])=>{
+    const removerBtn = info.custom
+      ? `<button class="cat-del" onclick="event.stopPropagation();removerCategoria('${info._key}','${escapar(nome)}')">×</button>`
+      : '';
+    return `
+    <div class="cat-pick ${nome===_fixoCat?'active':''}" onclick="selecionarCatFixo('${escapar(nome)}')">
+      <div class="cat-pick-emoji">${info.emoji}</div>
+      <div class="cat-pick-label">${nome}</div>
+      ${removerBtn}
+    </div>`;
+  }).join('') + `
+    <div class="cat-pick cat-nova" onclick="criarCategoria('fixo')">
+      <div class="cat-pick-emoji">＋</div>
+      <div class="cat-pick-label">Nova</div>
+    </div>`;
+}
+
+window.selecionarCatFixo = function(nome){
+  _fixoCat = nome;
+  renderModalCatsFixo();
+}
+
 window.confirmarFixo = async function(){
   const nome = document.getElementById('modal-fixo-nome').value.trim();
   const val  = parseFloat(document.getElementById('modal-fixo-valor').value);
   const dia  = parseInt(document.getElementById('modal-fixo-dia').value) || null;
   if(!nome || !val || val<=0){ showToast('Preencha nome e valor','error'); return; }
-  await update(ref(db,`grupos/${grupoCode}/fixos/${_editFixoKey}`), {nome, valor:val, dia});
-  showToast('Conta atualizada! ✓');
+
+  if(_editFixoKey){
+    await update(ref(db,`grupos/${grupoCode}/fixos/${_editFixoKey}`), {nome, valor:val, dia, cat:_fixoCat});
+    showToast('Conta atualizada! ✓');
+  } else {
+    const pidFixo = (modoApp !== 'solo' && membroAtivo) ? membroAtivo : meuPerfil;
+    await push(ref(db,`grupos/${grupoCode}/fixos`),{
+      pid:pidFixo, nome, valor:val, dia, cat:_fixoCat, pago:false,
+      mes:getMesAtivo(), ts:Date.now()
+    });
+    showToast('Conta adicionada!');
+  }
   fecharModalFixo();
 }
 
@@ -727,8 +836,10 @@ function renderHistorico(){
     {label:'Fixos pagos',   data:hist.map(h=>h.totalFixo||0).reverse(),       backgroundColor:'rgba(249,115,22,0.55)',borderRadius:6},
     {label:'Saldo',         data:hist.map(h=>h.saldo).reverse(),              backgroundColor:'rgba(34,197,94,0.6)', borderRadius:6}
   ]);
+  const escapar = s => String(s).replace(/'/g,"\\'");
   listEl.innerHTML = hist.map(h=>`
-    <div class="hist-card">
+    <div class="hist-card" style="position:relative">
+      <button class="hist-del" onclick="delHistorico('${h._key}','${escapar(h.mes)}')">×</button>
       <div class="hist-mes">${h.mes}</div>
       <div class="hist-row"><span>Renda total</span><span style="color:var(--gold);font-weight:600">${fmt(h.totalGanho)}</span></div>
       <div class="hist-row"><span>Gastos diários</span><span style="color:var(--red)">${fmt(h.totalGastoDiario||0)}</span></div>
@@ -768,20 +879,7 @@ window.addGasto = async function(){
   showToast('Gasto registrado!');
 }
 
-window.addFixo = async function(){
-  const desc = document.getElementById('inp-fixo-desc').value.trim();
-  const val  = parseFloat(document.getElementById('inp-fixo-val').value);
-  const dia  = parseInt(document.getElementById('inp-fixo-dia').value)||null;
-  if(!desc||!val||val<=0){ showToast('Preencha descrição e valor','error'); return; }
-  const pidFixo = (modoApp !== 'solo' && membroAtivo) ? membroAtivo : meuPerfil;
-  await push(ref(db,`grupos/${grupoCode}/fixos`),{
-    pid:pidFixo, nome:desc, valor:val, dia, pago:false, mes:getMesAtivo(), ts:Date.now()
-  });
-  document.getElementById('inp-fixo-desc').value='';
-  document.getElementById('inp-fixo-val').value='';
-  document.getElementById('inp-fixo-dia').value='';
-  showToast('Conta fixa adicionada!');
-}
+// addFixo legado — substituído por abrirCriarFixo + confirmarFixo (modo create)
 
 window.toggleFixo = async function(key, novoPago){
   await update(ref(db,`grupos/${grupoCode}/fixos/${key}`),{pago:novoPago});
@@ -794,14 +892,23 @@ window.delFixo  = async function(key){ await remove(ref(db,`grupos/${grupoCode}/
 
 window.fecharMes = async function(){
   const mesLabel = getMesAtivo();
-  if(!confirm('Fechar '+mesLabel+'? Ganhos e gastos do mês serão removidos.')) return;
+  // Verifica se já tem histórico desse mês (anti-duplicação)
+  const jaTem = (_dados.historico||[]).find(h=>h.mes===mesLabel);
+  const aviso = jaTem
+    ? `O mês "${mesLabel}" já foi fechado antes. Sobrescrever os valores anteriores?`
+    : `Fechar "${mesLabel}"? Ganhos e gastos do mês serão removidos.`;
+  if(!confirm(aviso)) return;
+
   const ganhos = filtrarMes(_dados.ganhos);
   const gastos = filtrarMes(_dados.gastos);
   const fixos  = filtrarMes(_dados.fixos);
   const tG  = ganhos.reduce((a,b)=>a+(b.valor||0),0);
   const tGD = gastos.reduce((a,b)=>a+(b.valor||0),0);
   const tF  = fixos.filter(f=>f.pago).reduce((a,b)=>a+(b.valor||0),0);
-  await push(ref(db,`grupos/${grupoCode}/historico`),{
+
+  // Usa mês como chave determinística — impede duplicação
+  const mesSlug = mesLabel.toLowerCase().replace(/\s+/g,'-');
+  await set(ref(db,`grupos/${grupoCode}/historico/${mesSlug}`),{
     mes:mesLabel, ts:Date.now(),
     totalGanho:tG, totalGastoDiario:tGD, totalFixo:tF,
     totalGasto:tGD+tF, saldo:tG-tGD-tF
@@ -810,6 +917,12 @@ window.fecharMes = async function(){
   for(const g of gastos) await remove(ref(db,`grupos/${grupoCode}/gastos/${g._key}`));
   for(const f of fixos)  await remove(ref(db,`grupos/${grupoCode}/fixos/${f._key}`));
   showToast('Mês fechado! Histórico salvo.');
+}
+
+window.delHistorico = async function(key, mes){
+  if(!confirm(`Apagar o histórico de "${mes}"? Essa ação não pode ser desfeita.`)) return;
+  await remove(ref(db,`grupos/${grupoCode}/historico/${key}`));
+  showToast('Histórico removido');
 }
 
 window.desconectar = function(){
@@ -1130,6 +1243,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 /* histórico */
 .hist-card{background:var(--surface2);border-radius:var(--radius-sm);padding:16px;margin-bottom:10px;border:1px solid var(--border);}
 .hist-mes{font-family:'Inter',sans-serif;font-size:16px;font-weight:700;margin-bottom:12px;color:var(--gold);}
+.hist-del{
+  position:absolute;top:10px;right:10px;
+  background:rgba(239,68,68,0.12);border:none;color:var(--red);
+  width:26px;height:26px;border-radius:50%;font-size:16px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;line-height:1;padding:0;
+}
+.hist-del:hover{background:rgba(239,68,68,0.25);}
 .hist-row{display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:0.5px solid var(--border);color:var(--text2);}
 .hist-row:last-child{border-bottom:none;}
 .hist-row-saldo{padding-top:8px !important;margin-top:4px;}
@@ -1345,10 +1465,21 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
   background:var(--surface2);cursor:pointer;font-family:'Inter',sans-serif;
   transition:all 0.15s;
 }
+.cat-pick{position:relative;}
 .cat-pick.active{background:var(--gold-bg);border-color:var(--gold-border);}
 .cat-pick-emoji{font-size:18px;line-height:1;}
 .cat-pick-label{font-size:9.5px;color:var(--text2);font-weight:600;}
 .cat-pick.active .cat-pick-label{color:var(--gold);}
+.cat-pick.cat-nova{border-style:dashed;}
+.cat-pick.cat-nova .cat-pick-emoji{color:var(--gold);font-weight:700;}
+.cat-pick.cat-nova .cat-pick-label{color:var(--gold);}
+.cat-del{
+  position:absolute;top:-6px;right:-6px;
+  background:var(--red);border:2px solid var(--surface);color:#fff;
+  width:18px;height:18px;border-radius:50%;font-size:11px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  line-height:1;padding:0;
+}
 .modal-actions{display:flex;gap:8px;margin-top:6px;}
 .modal-btn{
   flex:1;border:none;border-radius:12px;padding:14px;
@@ -1626,14 +1757,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
       <div class="fixo-hint">Toque no quadrado para marcar como pago — só então entra no balanço</div>
 
       <div class="card" style="margin-top:8px">
-        <div id="fixos-lista"><div class="empty">Nenhuma conta fixa cadastrada</div></div>
+        <div id="fixos-lista"><div class="empty">Nenhuma conta cadastrada</div></div>
         <div class="fixo-add-wrap">
-          <div class="add-row" style="flex-wrap:nowrap">
-            <input type="text"   class="inp" id="inp-fixo-desc" placeholder="Nome da conta" style="flex:2;min-width:0"/>
-            <input type="number" class="inp" id="inp-fixo-val"  inputmode="decimal" placeholder="R$" style="flex:1;min-width:60px"/>
-            <input type="number" class="inp" id="inp-fixo-dia"  inputmode="numeric" placeholder="Dia" min="1" max="31" style="flex:0.6;min-width:50px"/>
-          </div>
-          <button class="btn-add" style="width:100%;margin-top:4px" onclick="addFixo()">+ Adicionar conta fixa</button>
+          <button class="btn-add" style="width:100%" onclick="abrirCriarFixo()">+ Adicionar conta</button>
         </div>
       </div>
 
@@ -1691,11 +1817,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 <div class="modal-overlay" id="modal-fixo" onclick="if(event.target===this)fecharModalFixo()">
   <div class="modal-card">
     <div class="modal-handle"></div>
-    <div class="modal-titulo" style="color:var(--orange)">✏️ Editar conta</div>
-    <div class="modal-sub">Atualize os dados da conta</div>
+    <div class="modal-titulo" id="modal-fixo-titulo" style="color:var(--orange)">📋 Nova conta</div>
+    <div class="modal-sub">Conta fixa, fatura, parcelamento, etc</div>
 
     <label class="modal-label">Nome da conta</label>
-    <input type="text" class="modal-input" id="modal-fixo-nome" placeholder="Ex: aluguel, internet..."/>
+    <input type="text" class="modal-input" id="modal-fixo-nome" placeholder="Ex: aluguel, fatura cartão..."/>
 
     <label class="modal-label">Valor (R$)</label>
     <input type="number" inputmode="decimal" class="modal-input" id="modal-fixo-valor" placeholder="0"/>
@@ -1703,9 +1829,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
     <label class="modal-label">Dia do vencimento (opcional)</label>
     <input type="number" inputmode="numeric" class="modal-input" id="modal-fixo-dia" min="1" max="31" placeholder="Ex: 5"/>
 
+    <label class="modal-label">Categoria</label>
+    <div class="modal-cats" id="modal-fixo-cats"></div>
+
     <div class="modal-actions">
       <button class="modal-btn modal-btn-cancel" onclick="fecharModalFixo()">Cancelar</button>
-      <button class="modal-btn" style="background:linear-gradient(135deg,#f0c84a,#d4af37);color:#0a0800" onclick="confirmarFixo()">Salvar</button>
+      <button class="modal-btn" id="modal-fixo-btn" style="background:linear-gradient(135deg,#f0c84a,#d4af37);color:#0a0800" onclick="confirmarFixo()">Adicionar conta</button>
     </div>
   </div>
 </div>
