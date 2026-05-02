@@ -50,6 +50,21 @@ function getML(){ return MESES[now.getMonth()] + ' ' + now.getFullYear(); }
 function getMesAtivo(){ return MESES[mesAtivoIdx] + ' ' + mesAtivoYear; }
 function filtrarMes(arr){ const m=getMesAtivo(); return (arr||[]).filter(x=>(x.mes||getML())===m); }
 function today(){ const d=new Date(); return d.getDate()+'/'+(d.getMonth()+1); }
+function formatarDataTx(t){
+  const dias = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  if(t.ts){
+    const d = new Date(t.ts);
+    const hoje = new Date();
+    const ontem = new Date(); ontem.setDate(hoje.getDate()-1);
+    const isHoje  = d.toDateString()===hoje.toDateString();
+    const isOntem = d.toDateString()===ontem.toDateString();
+    const hora = String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+    if(isHoje)  return 'Hoje, '+hora;
+    if(isOntem) return 'Ontem, '+hora;
+    return dias[d.getDay()]+' '+d.getDate()+'/'+(d.getMonth()+1)+', '+hora;
+  }
+  return t.data || '';
+}
 function gerarCodigo(){ return Math.random().toString(36).substring(2,8).toUpperCase(); }
 
 function showToast(msg, type='success'){
@@ -129,13 +144,16 @@ window.entrarGrupo = async function(){
   grupoCode = codigo;
   meuNome   = nome;
 
-  // BUG FIX: verificar se já existe membro com o mesmo nome exato
-  const entradaExistente = Object.entries(membrosAtuais).find(([,v])=>v.nome===nome);
+  // BUG FIX: comparação case-insensitive + trim pra evitar duplicação
+  const nomeNorm = nome.toLowerCase().trim();
+  const entradaExistente = Object.entries(membrosAtuais)
+    .find(([,v])=>(v.nome||'').toLowerCase().trim()===nomeNorm);
   if(entradaExistente){
-    const [idExistente] = entradaExistente;
+    const [idExistente, dadosExistente] = entradaExistente;
     meuPerfil   = idExistente;
     membroAtivo = idExistente;
-    showToast('Bem-vindo de volta, '+nome+'!');
+    meuNome     = dadosExistente.nome; // usa o nome original cadastrado
+    showToast('Bem-vindo de volta, '+meuNome+'!');
   } else {
     const qtd   = Object.keys(membrosAtuais).length;
     const cores = ['#d4af37','#f97316','#10b981','#ec4899','#3b82f6','#8b5cf6'];
@@ -214,13 +232,32 @@ function renderNavMembros(){
     return;
   }
   nav.style.display = 'flex';
-  nav.innerHTML = membros.map(m=>`
+  nav.innerHTML = membros.map(m=>{
+    const podeRemover = m.id !== meuPerfil;
+    return `
     <div class="membro-tab ${m.id===membroAtivo?'active':''}" onclick="setMembroAtivo('${m.id}')">
       <div class="membro-avatar" style="background:${m.cor}22;color:${m.cor}">${m.nome[0].toUpperCase()}</div>
       <span>${m.nome}</span>
-    </div>
-  `).join('');
+      ${podeRemover?`<button class="membro-x" onclick="event.stopPropagation();removerMembro('${m.id}','${m.nome.replace(/'/g,"\\'")}')">×</button>`:''}
+    </div>`;
+  }).join('');
   renderTudo();
+}
+
+window.removerMembro = async function(id, nome){
+  if(!confirm(`Remover o perfil "${nome}" e todos os dados dele? Essa ação não pode ser desfeita.`)) return;
+  // Remove o membro
+  await remove(ref(db,`grupos/${grupoCode}/membros/${id}`));
+  // Remove ganhos, gastos e fixos do membro
+  const tipos = ['ganhos','gastos','fixos'];
+  for(const t of tipos){
+    const snap = await get(ref(db,`grupos/${grupoCode}/${t}`));
+    const itens = snap.val() || {};
+    for(const [k,v] of Object.entries(itens)){
+      if(v.pid === id) await remove(ref(db,`grupos/${grupoCode}/${t}/${k}`));
+    }
+  }
+  showToast('Perfil "'+nome+'" removido');
 }
 
 window.setMembroAtivo = function(id){
@@ -387,7 +424,7 @@ function renderMeu(){
           <div class="tx-icon-circle ${t._tipo}">${arrow}</div>
           <div class="tx-info">
             <div class="tx-nome">${t._label}</div>
-            <div class="tx-data">${t.data||''}</div>
+            <div class="tx-data">${formatarDataTx(t)}</div>
           </div>
           <div class="tx-valor ${t._tipo}">${sinal}${fmt(t.valor)}</div>
           ${isEu?`<button class="tx-del" onclick="${t._tipo==='in'?'delGanho':'delGasto'}('${t._key}')">×</button>`:''}
@@ -748,7 +785,7 @@ function mkDoughnut(id, labels, data, colors){
 }
 
 // ── TELAS ──────────────────────────────────────────────────────────────────
-function showScreen(id){
+window.showScreen = function showScreen(id){
   document.querySelectorAll('.screen').forEach(s=>s.style.display='none');
   document.getElementById(id).style.display='flex';
 }
@@ -870,6 +907,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 }
 .membro-tab.active{background:var(--gold-bg);border-color:var(--gold-border);color:var(--gold);}
 .membro-avatar{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;}
+.membro-x{
+  background:rgba(239,68,68,0.12);border:none;color:var(--red);
+  width:18px;height:18px;border-radius:50%;font-size:12px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  margin-left:2px;line-height:1;padding:0;
+}
+.membro-x:hover{background:rgba(239,68,68,0.25);}
 
 /* bottom nav */
 .bottom-nav{
