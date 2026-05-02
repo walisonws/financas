@@ -419,15 +419,16 @@ function renderMeu(){
     document.getElementById('tx-lista').innerHTML = tx.map(t=>{
       const sinal = t._tipo==='in' ? '+' : '−';
       const arrow = t._tipo==='in' ? '↑' : '↓';
+      const onClickEdit = isEu ? `onclick="abrirModal('${t._tipo}','${t._key}')" style="cursor:pointer"` : '';
       return `
         <div class="tx-item">
-          <div class="tx-icon-circle ${t._tipo}">${arrow}</div>
-          <div class="tx-info">
+          <div class="tx-icon-circle ${t._tipo}" ${onClickEdit}>${arrow}</div>
+          <div class="tx-info" ${onClickEdit}>
             <div class="tx-nome">${t._label}</div>
-            <div class="tx-data">${formatarDataTx(t)}</div>
+            <div class="tx-data">${formatarDataTx(t)}${isEu?' · <span style="color:var(--gold);opacity:0.7">tocar p/ editar</span>':''}</div>
           </div>
-          <div class="tx-valor ${t._tipo}">${sinal}${fmt(t.valor)}</div>
-          ${isEu?`<button class="tx-del" onclick="${t._tipo==='in'?'delGanho':'delGasto'}('${t._key}')">×</button>`:''}
+          <div class="tx-valor ${t._tipo}" ${onClickEdit}>${sinal}${fmt(t.valor)}</div>
+          ${isEu?`<button class="tx-del" onclick="event.stopPropagation();${t._tipo==='in'?'delGanho':'delGasto'}('${t._key}')">×</button>`:''}
         </div>`;
     }).join('');
     txCard.style.display = 'block';
@@ -436,35 +437,56 @@ function renderMeu(){
   }
 }
 
-// ── MODAL RECEBI/GASTEI ─────────────────────────────────────────────────────
+// ── MODAL RECEBI/GASTEI (com modo edição) ──────────────────────────────────
 let _modalTipo = 'in';
 let _modalCat  = 'Alimentação';
+let _modalEditKey = null;
 
-window.abrirModal = function(tipo){
+window.abrirModal = function(tipo, editKey){
   _modalTipo = tipo;
   _modalCat = 'Alimentação';
+  _modalEditKey = editKey || null;
+
   const overlay = document.getElementById('modal-tx');
   const titulo  = document.getElementById('modal-titulo');
   const sub     = document.getElementById('modal-sub');
   const cats    = document.getElementById('modal-cats-wrap');
   const btnConf = document.getElementById('modal-btn-confirm');
+  const valEl   = document.getElementById('modal-valor');
+  const descEl  = document.getElementById('modal-desc');
 
-  titulo.textContent = tipo==='in' ? '💰 Recebi' : '💸 Gastei';
+  if(_modalEditKey){
+    // MODO EDIÇÃO — busca o item e pré-preenche
+    const lista = tipo==='in' ? _dados.ganhos : _dados.gastos;
+    const item  = lista.find(x=>x._key===_modalEditKey);
+    if(!item){ showToast('Item não encontrado','error'); return; }
+    titulo.textContent = tipo==='in' ? '✏️ Editar entrada' : '✏️ Editar gasto';
+    sub.textContent    = 'Atualize os dados';
+    btnConf.textContent= 'Salvar alterações';
+    valEl.value  = item.valor || '';
+    descEl.value = (tipo==='in' ? item.desc : item.nome) || '';
+    if(tipo==='out') _modalCat = item.cat || 'Alimentação';
+  } else {
+    // MODO CRIAÇÃO
+    titulo.textContent = tipo==='in' ? '💰 Recebi' : '💸 Gastei';
+    sub.textContent    = tipo==='in' ? 'Lançar entrada de dinheiro' : 'Lançar saída de dinheiro';
+    btnConf.textContent= tipo==='in' ? 'Confirmar entrada' : 'Confirmar gasto';
+    valEl.value  = '';
+    descEl.value = '';
+  }
+
   titulo.className   = 'modal-titulo ' + tipo;
-  sub.textContent    = tipo==='in' ? 'Lançar entrada de dinheiro' : 'Lançar saída de dinheiro';
   cats.style.display = tipo==='out' ? 'block' : 'none';
   btnConf.className  = 'modal-btn modal-btn-confirm ' + tipo;
-  btnConf.textContent= tipo==='in' ? 'Confirmar entrada' : 'Confirmar gasto';
 
-  document.getElementById('modal-valor').value = '';
-  document.getElementById('modal-desc').value  = '';
   renderModalCats();
   overlay.classList.add('show');
-  setTimeout(()=>document.getElementById('modal-valor').focus(), 100);
+  setTimeout(()=>valEl.focus(), 100);
 }
 
 window.fecharModal = function(){
   document.getElementById('modal-tx').classList.remove('show');
+  _modalEditKey = null;
 }
 
 function renderModalCats(){
@@ -487,7 +509,16 @@ window.confirmarModal = async function(){
   const desc = document.getElementById('modal-desc').value.trim();
   if(!val || val<=0){ showToast('Informe um valor válido','error'); return; }
 
-  if(_modalTipo === 'in'){
+  if(_modalEditKey){
+    // EDIÇÃO — update no item existente
+    const path = _modalTipo==='in' ? 'ganhos' : 'gastos';
+    if(_modalTipo==='out' && !desc){ showToast('Descreva o gasto','error'); return; }
+    const updates = _modalTipo==='in'
+      ? {desc:desc||'Ganho do dia', valor:val}
+      : {nome:desc, valor:val, cat:_modalCat};
+    await update(ref(db,`grupos/${grupoCode}/${path}/${_modalEditKey}`), updates);
+    showToast('Atualizado! ✓');
+  } else if(_modalTipo === 'in'){
     await push(ref(db,`grupos/${grupoCode}/ganhos`),{
       pid:meuPerfil, desc:desc||'Ganho do dia', valor:val,
       data:today(), mes:getMesAtivo(), ts:Date.now()
@@ -502,6 +533,40 @@ window.confirmarModal = async function(){
     showToast('Gasto registrado!');
   }
   fecharModal();
+}
+
+// ── MODAL EDITAR FIXO ──────────────────────────────────────────────────────
+let _editFixoKey = null;
+
+window.abrirEditarFixo = function(key){
+  const f = _dados.fixos.find(x=>x._key===key);
+  if(!f){ showToast('Conta não encontrada','error'); return; }
+  // Só permite editar se for do membro logado (no modo grupo)
+  if(modoApp !== 'solo' && f.pid !== meuPerfil){
+    showToast('Você só pode editar suas próprias contas','error');
+    return;
+  }
+  _editFixoKey = key;
+  document.getElementById('modal-fixo-nome').value  = f.nome || '';
+  document.getElementById('modal-fixo-valor').value = f.valor || '';
+  document.getElementById('modal-fixo-dia').value   = f.dia || '';
+  document.getElementById('modal-fixo').classList.add('show');
+  setTimeout(()=>document.getElementById('modal-fixo-nome').focus(), 100);
+}
+
+window.fecharModalFixo = function(){
+  document.getElementById('modal-fixo').classList.remove('show');
+  _editFixoKey = null;
+}
+
+window.confirmarFixo = async function(){
+  const nome = document.getElementById('modal-fixo-nome').value.trim();
+  const val  = parseFloat(document.getElementById('modal-fixo-valor').value);
+  const dia  = parseInt(document.getElementById('modal-fixo-dia').value) || null;
+  if(!nome || !val || val<=0){ showToast('Preencha nome e valor','error'); return; }
+  await update(ref(db,`grupos/${grupoCode}/fixos/${_editFixoKey}`), {nome, valor:val, dia});
+  showToast('Conta atualizada! ✓');
+  fecharModalFixo();
 }
 
 // ── ABA RESUMO ───────────────────────────────────────────────────────────────
@@ -609,14 +674,16 @@ function renderFixos(){
   } else {
     lista.innerHTML = fixos.map(f=>{
       const membro = membros.find(m=>m.id===f.pid)||{nome:'?', cor:'#888'};
+      const podeEditar = (modoApp==='solo' || f.pid===meuPerfil);
+      const editAttr = podeEditar ? `onclick="abrirEditarFixo('${f._key}')" style="cursor:pointer"` : '';
       return `<div class="fixo-item ${f.pago?'pago':''}">
-        <div class="fixo-check" onclick="toggleFixo('${f._key}',${!f.pago})"
+        <div class="fixo-check" onclick="event.stopPropagation();toggleFixo('${f._key}',${!f.pago})"
              style="border-color:${f.pago?'var(--gold)':'var(--border2)'}">
           ${f.pago?`<svg width="12" height="12" viewBox="0 0 12 12">
             <polyline points="2,6 5,9 10,3" fill="none" stroke="var(--gold)" stroke-width="2.5"/>
           </svg>`:''}
         </div>
-        <div class="fixo-info">
+        <div class="fixo-info" ${editAttr}>
           <div class="fixo-nome ${f.pago?'riscado':''}">${f.nome}</div>
           <div class="fixo-sub">
             <span style="color:${membro.cor}">${membro.nome}</span>
@@ -624,11 +691,12 @@ function renderFixos(){
             ${f.pago
               ? ' · <span style="color:var(--gold);font-size:10px">Pago ✓</span>'
               : ' · <span style="color:var(--orange);font-size:10px">Pendente</span>'}
+            ${podeEditar ? ' · <span style="color:var(--gold);opacity:0.7;font-size:10px">tocar p/ editar</span>' : ''}
           </div>
         </div>
         <div class="fixo-right">
           <span class="fixo-valor" style="color:${f.pago?'var(--gold)':'var(--text2)'}">${fmt(f.valor)}</span>
-          <button class="del" onclick="delFixo('${f._key}')">×</button>
+          <button class="del" onclick="event.stopPropagation();delFixo('${f._key}')">×</button>
         </div>
       </div>`;
     }).join('');
@@ -1616,6 +1684,31 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
   </div>
 
 </div><!-- /app -->
+
+<!-- ════════════════════════════════════════════════════════
+     MODAL EDITAR CONTA FIXA
+════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-fixo" onclick="if(event.target===this)fecharModalFixo()">
+  <div class="modal-card">
+    <div class="modal-handle"></div>
+    <div class="modal-titulo" style="color:var(--orange)">✏️ Editar conta</div>
+    <div class="modal-sub">Atualize os dados da conta</div>
+
+    <label class="modal-label">Nome da conta</label>
+    <input type="text" class="modal-input" id="modal-fixo-nome" placeholder="Ex: aluguel, internet..."/>
+
+    <label class="modal-label">Valor (R$)</label>
+    <input type="number" inputmode="decimal" class="modal-input" id="modal-fixo-valor" placeholder="0"/>
+
+    <label class="modal-label">Dia do vencimento (opcional)</label>
+    <input type="number" inputmode="numeric" class="modal-input" id="modal-fixo-dia" min="1" max="31" placeholder="Ex: 5"/>
+
+    <div class="modal-actions">
+      <button class="modal-btn modal-btn-cancel" onclick="fecharModalFixo()">Cancelar</button>
+      <button class="modal-btn" style="background:linear-gradient(135deg,#f0c84a,#d4af37);color:#0a0800" onclick="confirmarFixo()">Salvar</button>
+    </div>
+  </div>
+</div>
 
 <!-- ════════════════════════════════════════════════════════
      MODAL RECEBI / GASTEI
