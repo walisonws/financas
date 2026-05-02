@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Demo — Painel Admin Grana Pro</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#070707; --surface:#0f0f0f; --surface2:#181818; --surface3:#222;
+  --border:rgba(255,255,255,0.06);
+  --text1:#f5f0e1; --text2:rgba(245,240,225,0.65); --text3:rgba(245,240,225,0.4);
+  --gold:#d4af37; --green:#22c55e; --red:#ef4444; --orange:#f97316; --blue:#3b82f6;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text1);font-family:'Inter',sans-serif;min-height:100vh;}
+.wrap{max-width:880px;margin:0 auto;padding:20px;}
+
+/* HEADER */
+.head{display:flex;justify-content:space-between;align-items:center;padding:14px 0 22px;border-bottom:1px solid var(--border);margin-bottom:22px;}
+.head-logo{font-size:18px;font-weight:800;color:var(--gold);}
+.head-logo span{font-size:11px;color:var(--text3);font-weight:500;margin-left:6px;}
+.head-user{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--text2);}
+.head-user .pin{background:var(--surface2);padding:4px 10px;border-radius:10px;font-size:11px;color:var(--gold);font-weight:600;}
+
+/* STATS GRID */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:22px;}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;}
+.stat-label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:6px;}
+.stat-val{font-size:22px;font-weight:800;letter-spacing:-0.5px;}
+.stat-val.green{color:var(--green);}
+.stat-val.red{color:var(--red);}
+.stat-val.gold{color:var(--gold);}
+.stat-val.blue{color:var(--blue);}
+.stat-sub{font-size:11px;color:var(--text3);margin-top:2px;}
+
+/* SEARCH BAR */
+.toolbar{display:flex;gap:8px;margin-bottom:16px;}
+.search{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:11px 14px;color:var(--text1);font-family:inherit;font-size:14px;outline:none;}
+.search:focus{border-color:var(--gold);}
+.filtro{display:flex;gap:4px;background:var(--surface);border-radius:12px;padding:4px;border:1px solid var(--border);}
+.filtro-btn{background:transparent;border:none;color:var(--text2);padding:6px 12px;border-radius:8px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;}
+.filtro-btn.active{background:var(--surface3);color:var(--text1);}
+
+/* TABLE */
+.tabela{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
+.row{display:grid;grid-template-columns:2fr 1.4fr 1fr 1.4fr 1.6fr;gap:8px;padding:12px 16px;border-top:1px solid var(--border);align-items:center;font-size:13px;}
+.row:first-child{border-top:none;background:var(--surface2);font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;}
+.cliente-nome{font-weight:600;color:var(--text1);}
+.cliente-zap{font-size:11px;color:var(--text3);margin-top:2px;}
+.codigo{font-family:'Courier New',monospace;color:var(--gold);font-size:12px;font-weight:600;}
+.modo-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;}
+.modo-solo{background:rgba(212,175,55,0.15);color:var(--gold);}
+.modo-grupo{background:rgba(59,130,246,0.15);color:var(--blue);}
+.status{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:12px;}
+.dot{width:8px;height:8px;border-radius:50%;}
+.dot-green{background:var(--green);}
+.dot-orange{background:var(--orange);}
+.dot-red{background:var(--red);}
+.acoes{display:flex;gap:6px;justify-content:flex-end;}
+.btn-acao{background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text2);padding:6px 10px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;}
+.btn-acao:hover{background:var(--surface3);color:var(--text1);}
+.btn-acao.green{color:var(--green);border-color:rgba(34,197,94,0.3);}
+.btn-acao.red{color:var(--red);border-color:rgba(239,68,68,0.3);}
+.btn-acao.zap{color:#25d366;border-color:rgba(37,211,102,0.3);}
+
+.footer-note{text-align:center;color:var(--text3);font-size:11px;padding:30px 12px 16px;line-height:1.5;}
+.footer-note strong{color:var(--gold);}
+
+@media(max-width:720px){
+  .stats{grid-template-columns:1fr 1fr;}
+  .row{grid-template-columns:1fr;gap:8px;padding:14px;}
+  .row:first-child{display:none;}
+  .acoes{justify-content:flex-start;flex-wrap:wrap;}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <div class="head-logo">👑 Grana Pro<span>· Painel Admin</span></div>
+    <div class="head-user">
+      <span>logado como</span>
+      <span class="pin">walison</span>
+    </div>
+  </div>
+
+  <!-- STATS -->
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-label">Total de clientes</div>
+      <div class="stat-val">42</div>
+      <div class="stat-sub">desde abril/2026</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Ativos</div>
+      <div class="stat-val green">31</div>
+      <div class="stat-sub">73,8% da base</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Vencendo em 7 dias</div>
+      <div class="stat-val" style="color:var(--orange)">5</div>
+      <div class="stat-sub">cobrar pelo zap</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Faturamento mensal</div>
+      <div class="stat-val gold">R$ 306,90</div>
+      <div class="stat-sub">31 × R$ 9,90</div>
+    </div>
+  </div>
+
+  <!-- TOOLBAR -->
+  <div class="toolbar">
+    <input class="search" type="text" placeholder="🔍 Buscar por nome ou código…"/>
+    <div class="filtro">
+      <button class="filtro-btn active">Todos</button>
+      <button class="filtro-btn">Ativos</button>
+      <button class="filtro-btn">Vencendo</button>
+      <button class="filtro-btn">Vencidos</button>
+    </div>
+  </div>
+
+  <!-- TABLE -->
+  <div class="tabela">
+    <div class="row">
+      <div>Cliente</div>
+      <div>Código</div>
+      <div>Modo</div>
+      <div>Validade</div>
+      <div style="text-align:right">Ações</div>
+    </div>
+
+    <!-- Cliente ativo -->
+    <div class="row">
+      <div>
+        <div class="cliente-nome">Carlos Mendes</div>
+        <div class="cliente-zap">📱 (85) 98765-4321</div>
+      </div>
+      <div class="codigo">SOLO_K7B2X</div>
+      <div><span class="modo-badge modo-solo">Individual</span></div>
+      <div>
+        <div class="status"><span class="dot dot-green"></span>Ativo</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">vence em 18 dias (20/05)</div>
+      </div>
+      <div class="acoes">
+        <button class="btn-acao green">+30 dias</button>
+        <button class="btn-acao zap">💬 Zap</button>
+        <button class="btn-acao red">Bloquear</button>
+      </div>
+    </div>
+
+    <!-- Cliente vencendo (laranja) -->
+    <div class="row">
+      <div>
+        <div class="cliente-nome">Joana Silva</div>
+        <div class="cliente-zap">📱 (85) 99876-2233</div>
+      </div>
+      <div class="codigo">A8K2P1</div>
+      <div><span class="modo-badge modo-grupo">Casal</span></div>
+      <div>
+        <div class="status"><span class="dot dot-orange"></span>Vence em 3 dias</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">vence 05/05</div>
+      </div>
+      <div class="acoes">
+        <button class="btn-acao green">+30 dias</button>
+        <button class="btn-acao zap">💬 Cobrar</button>
+        <button class="btn-acao">…</button>
+      </div>
+    </div>
+
+    <!-- Cliente vencido (vermelho) -->
+    <div class="row">
+      <div>
+        <div class="cliente-nome">Pedro Santos</div>
+        <div class="cliente-zap">📱 (85) 99111-5544</div>
+      </div>
+      <div class="codigo">SOLO_M3Q8L</div>
+      <div><span class="modo-badge modo-solo">Individual</span></div>
+      <div>
+        <div class="status" style="color:var(--red)"><span class="dot dot-red"></span>Vencido</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">há 4 dias (28/04)</div>
+      </div>
+      <div class="acoes">
+        <button class="btn-acao green">Reativar +30</button>
+        <button class="btn-acao zap">💬 Cobrar</button>
+        <button class="btn-acao red">Excluir</button>
+      </div>
+    </div>
+
+    <!-- Cliente ativo recente -->
+    <div class="row">
+      <div>
+        <div class="cliente-nome">Marcos & Família</div>
+        <div class="cliente-zap">📱 (85) 98123-9999</div>
+      </div>
+      <div class="codigo">FAM7K9</div>
+      <div><span class="modo-badge modo-grupo">Família</span></div>
+      <div>
+        <div class="status"><span class="dot dot-green"></span>Ativo</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">vence em 27 dias (29/05)</div>
+      </div>
+      <div class="acoes">
+        <button class="btn-acao green">+30 dias</button>
+        <button class="btn-acao zap">💬 Zap</button>
+        <button class="btn-acao red">Bloquear</button>
+      </div>
+    </div>
+
+    <!-- Cliente em trial -->
+    <div class="row">
+      <div>
+        <div class="cliente-nome">Ana Costa</div>
+        <div class="cliente-zap">📱 (85) 99344-1100</div>
+      </div>
+      <div class="codigo">SOLO_R5T9V</div>
+      <div><span class="modo-badge modo-solo">Individual</span></div>
+      <div>
+        <div class="status" style="color:var(--blue)"><span class="dot" style="background:var(--blue)"></span>Trial</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">vence em 2 dias (04/05)</div>
+      </div>
+      <div class="acoes">
+        <button class="btn-acao green">Converter pago</button>
+        <button class="btn-acao zap">💬 Vender</button>
+        <button class="btn-acao red">Bloquear</button>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="footer-note">
+    <strong>Demo do painel admin</strong><br>
+    Esta página é separada do app, protegida por senha mestre só sua. Os clientes nunca veem isso.
+  </div>
+</div>
+</body>
+</html>
