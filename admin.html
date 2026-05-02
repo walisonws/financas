@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="robots" content="noindex,nofollow"/>
+<title>Grana Pro · Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#070707; --surface:#0f0f0f; --surface2:#181818; --surface3:#222;
+  --border:rgba(255,255,255,0.06);
+  --text1:#f5f0e1; --text2:rgba(245,240,225,0.65); --text3:rgba(245,240,225,0.4);
+  --gold:#d4af37; --green:#22c55e; --red:#ef4444; --orange:#f97316; --blue:#3b82f6;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text1);font-family:'Inter',sans-serif;min-height:100vh;}
+.wrap{max-width:920px;margin:0 auto;padding:20px;}
+
+#login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+.login-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:30px;max-width:340px;width:100%;text-align:center;}
+.login-icon{font-size:48px;margin-bottom:12px;}
+.login-titulo{font-size:18px;font-weight:800;color:var(--gold);margin-bottom:6px;}
+.login-sub{font-size:12px;color:var(--text3);margin-bottom:20px;}
+.login-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px;color:var(--text1);font-family:inherit;font-size:14px;outline:none;text-align:center;letter-spacing:6px;margin-bottom:10px;}
+.login-input:focus{border-color:var(--gold);}
+.login-btn{width:100%;background:var(--gold);color:#0a0800;border:none;border-radius:12px;padding:14px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;}
+.login-erro{color:var(--red);font-size:12px;margin-top:10px;display:none;}
+
+#admin-screen{display:none;}
+.head{display:flex;justify-content:space-between;align-items:center;padding:14px 0 22px;border-bottom:1px solid var(--border);margin-bottom:22px;}
+.head-logo{font-size:18px;font-weight:800;color:var(--gold);}
+.head-logo span{font-size:11px;color:var(--text3);font-weight:500;margin-left:6px;}
+.btn-sair{background:var(--surface2);border:1px solid var(--border);color:var(--text2);padding:8px 14px;border-radius:10px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;}
+
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:22px;}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;}
+.stat-label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:6px;}
+.stat-val{font-size:22px;font-weight:800;letter-spacing:-0.5px;}
+.stat-val.green{color:var(--green);} .stat-val.red{color:var(--red);}
+.stat-val.gold{color:var(--gold);} .stat-val.orange{color:var(--orange);}
+.stat-sub{font-size:11px;color:var(--text3);margin-top:2px;}
+
+.toolbar{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}
+.search{flex:1;min-width:220px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:11px 14px;color:var(--text1);font-family:inherit;font-size:14px;outline:none;}
+.search:focus{border-color:var(--gold);}
+.filtro{display:flex;gap:4px;background:var(--surface);border-radius:12px;padding:4px;border:1px solid var(--border);}
+.filtro-btn{background:transparent;border:none;color:var(--text2);padding:6px 12px;border-radius:8px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;}
+.filtro-btn.active{background:var(--surface3);color:var(--text1);}
+
+.tabela{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
+.row-head{display:grid;grid-template-columns:2fr 1.2fr 1fr 1.4fr 1.8fr;gap:8px;padding:12px 16px;background:var(--surface2);font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;}
+.row{display:grid;grid-template-columns:2fr 1.2fr 1fr 1.4fr 1.8fr;gap:8px;padding:14px 16px;border-top:1px solid var(--border);align-items:center;font-size:13px;}
+.cliente-nome{font-weight:600;color:var(--text1);}
+.cliente-zap{font-size:11px;color:var(--text3);margin-top:2px;}
+.codigo{font-family:'Courier New',monospace;color:var(--gold);font-size:12px;font-weight:600;}
+.modo-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;}
+.modo-solo{background:rgba(212,175,55,0.15);color:var(--gold);}
+.modo-grupo{background:rgba(59,130,246,0.15);color:var(--blue);}
+.status{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:12px;}
+.dot{width:8px;height:8px;border-radius:50%;}
+.dot-green{background:var(--green);} .dot-orange{background:var(--orange);}
+.dot-red{background:var(--red);} .dot-blue{background:var(--blue);}
+.acoes{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;}
+.btn-acao{background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text2);padding:6px 10px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;}
+.btn-acao:hover{background:var(--surface3);color:var(--text1);}
+.btn-acao.green{color:var(--green);border-color:rgba(34,197,94,0.3);}
+.btn-acao.red{color:var(--red);border-color:rgba(239,68,68,0.3);}
+.btn-acao.zap{color:#25d366;border-color:rgba(37,211,102,0.3);}
+.empty{text-align:center;padding:40px 20px;color:var(--text3);font-size:13px;}
+
+@media(max-width:720px){
+  .stats{grid-template-columns:1fr 1fr;}
+  .row-head{display:none;}
+  .row{grid-template-columns:1fr;gap:8px;padding:14px;}
+  .acoes{justify-content:flex-start;}
+}
+
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(100px);background:var(--surface3);color:var(--text1);padding:12px 20px;border-radius:12px;font-size:13px;font-weight:600;z-index:9999;transition:transform 0.3s;border:1px solid var(--border);}
+.toast.show{transform:translateX(-50%) translateY(0);}
+.toast.error{border-color:var(--red);color:var(--red);}
+.toast.success{border-color:var(--green);color:var(--green);}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-icon">👑</div>
+    <div class="login-titulo">Painel Admin</div>
+    <div class="login-sub">Grana Pro · acesso restrito</div>
+    <input type="password" class="login-input" id="senha-input" placeholder="••••" autocomplete="off"/>
+    <button class="login-btn" onclick="entrar()">Entrar</button>
+    <div class="login-erro" id="login-erro">Senha incorreta</div>
+  </div>
+</div>
+
+<!-- ADMIN -->
+<div id="admin-screen">
+  <div class="wrap">
+
+    <div class="head">
+      <div class="head-logo">👑 Grana Pro<span>· Painel Admin</span></div>
+      <button class="btn-sair" onclick="sair()">Sair</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="stat-label">Total</div><div class="stat-val" id="stat-total">0</div><div class="stat-sub" id="stat-total-sub">clientes</div></div>
+      <div class="stat"><div class="stat-label">Ativos</div><div class="stat-val green" id="stat-ativos">0</div><div class="stat-sub" id="stat-ativos-sub">0% da base</div></div>
+      <div class="stat"><div class="stat-label">Vencendo 7d</div><div class="stat-val orange" id="stat-vencendo">0</div><div class="stat-sub">cobrar pelo zap</div></div>
+      <div class="stat"><div class="stat-label">Faturamento</div><div class="stat-val gold" id="stat-fat">R$ 0</div><div class="stat-sub" id="stat-fat-sub">mensal estimado</div></div>
+    </div>
+
+    <div class="toolbar">
+      <input class="search" type="text" id="busca" placeholder="🔍 Buscar por nome ou código…" oninput="renderLista()"/>
+      <div class="filtro">
+        <button class="filtro-btn active" onclick="setFiltro('todos')" data-f="todos">Todos</button>
+        <button class="filtro-btn" onclick="setFiltro('ativos')" data-f="ativos">Ativos</button>
+        <button class="filtro-btn" onclick="setFiltro('trial')" data-f="trial">Trial</button>
+        <button class="filtro-btn" onclick="setFiltro('vencendo')" data-f="vencendo">Vencendo</button>
+        <button class="filtro-btn" onclick="setFiltro('vencidos')" data-f="vencidos">Vencidos</button>
+      </div>
+    </div>
+
+    <div class="tabela">
+      <div class="row-head">
+        <div>Cliente</div>
+        <div>Código</div>
+        <div>Modo</div>
+        <div>Status / Validade</div>
+        <div style="text-align:right">Ações</div>
+      </div>
+      <div id="lista-clientes"></div>
+    </div>
+
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getDatabase, ref, onValue, update } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCfB9cUJ5uQSrYsrglJ4yC-QtorFKCj4UI",
+  authDomain: "financa-casal-f8458.firebaseapp.com",
+  databaseURL: "https://financa-casal-f8458-default-rtdb.firebaseio.com",
+  projectId: "financa-casal-f8458",
+  storageBucket: "financa-casal-f8458.firebasestorage.app",
+  messagingSenderId: "1011837439157",
+  appId: "1:1011837439157:web:46f6f38c3eac3c4bacc2fc"
+};
+const app = initializeApp(firebaseConfig);
+const db  = getDatabase(app);
+
+// ════════════════════════════════════════════════════════════════════
+//  ⚠️  CONFIGURAÇÕES — TROQUE A SENHA ABAIXO POR UMA SUA  ⚠️
+// ════════════════════════════════════════════════════════════════════
+const SENHA_ADMIN  = 'walison2026'; // ← TROQUE ESTA SENHA
+const PRECO_MENSAL = 9.90;
+const WHATSAPP_NUMERO = '5585991053816';
+
+let _grupos = {};
+let _filtro = 'todos';
+
+// ── LOGIN ──────────────────────────────────────────────────────────
+window.entrar = function(){
+  const s = document.getElementById('senha-input').value;
+  if(s === SENHA_ADMIN){
+    sessionStorage.setItem('grana_admin', '1');
+    mostrarAdmin();
+  } else {
+    document.getElementById('login-erro').style.display = 'block';
+  }
+}
+window.sair = function(){
+  sessionStorage.removeItem('grana_admin');
+  location.reload();
+}
+document.getElementById('senha-input').addEventListener('keydown', e=>{
+  if(e.key==='Enter') entrar();
+});
+
+if(sessionStorage.getItem('grana_admin') === '1'){
+  mostrarAdmin();
+}
+
+function mostrarAdmin(){
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('admin-screen').style.display = 'block';
+  carregarGrupos();
+}
+
+// ── DADOS ──────────────────────────────────────────────────────────
+function carregarGrupos(){
+  onValue(ref(db, 'grupos'), snap=>{
+    _grupos = snap.val() || {};
+    renderLista();
+    renderStats();
+  });
+}
+
+function statusDoGrupo(g){
+  const v = g?.info?.validoAte || 0;
+  const p = g?.info?.plano;
+  const agora = Date.now();
+  const dias = Math.ceil((v - agora) / 86400000);
+
+  if(v <= agora) return { tipo:'vencido', dias:Math.abs(dias), label:`vencido há ${Math.abs(dias)} dia${Math.abs(dias)===1?'':'s'}` };
+  if(p === 'trial') return { tipo:'trial', dias, label:`trial · ${dias}d` };
+  if(dias <= 7) return { tipo:'vencendo', dias, label:`vence em ${dias}d` };
+  return { tipo:'ativo', dias, label:`ativo · ${dias}d restantes` };
+}
+
+function nomeDoGrupo(g){
+  const m = g?.membros || {};
+  const p1 = m.p1 || Object.values(m)[0];
+  if(g?.info?.modo === 'grupo'){
+    const nomes = Object.values(m).map(x=>x?.nome).filter(Boolean);
+    if(nomes.length > 1) return nomes.slice(0,2).join(' & ');
+    return (p1?.nome || 'Sem nome') + ' (Grupo)';
+  }
+  return p1?.nome || 'Sem nome';
+}
+
+function fmtData(ts){
+  if(!ts) return '—';
+  const d = new Date(ts);
+  return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
+}
+
+// ── RENDER ─────────────────────────────────────────────────────────
+window.setFiltro = function(f){
+  _filtro = f;
+  document.querySelectorAll('.filtro-btn').forEach(b=>b.classList.toggle('active', b.dataset.f===f));
+  renderLista();
+}
+
+window.renderLista = function(){
+  const busca = document.getElementById('busca').value.toLowerCase().trim();
+  const lista = document.getElementById('lista-clientes');
+  const itens = Object.entries(_grupos).map(([codigo, g])=>{
+    const st = statusDoGrupo(g);
+    const nome = nomeDoGrupo(g);
+    return { codigo, g, st, nome };
+  });
+
+  const filtrados = itens.filter(it=>{
+    if(_filtro === 'ativos'   && it.st.tipo !== 'ativo') return false;
+    if(_filtro === 'trial'    && it.st.tipo !== 'trial') return false;
+    if(_filtro === 'vencendo' && it.st.tipo !== 'vencendo') return false;
+    if(_filtro === 'vencidos' && it.st.tipo !== 'vencido') return false;
+    if(busca){
+      const txt = (it.nome+' '+it.codigo).toLowerCase();
+      if(!txt.includes(busca)) return false;
+    }
+    return true;
+  });
+
+  if(filtrados.length === 0){
+    lista.innerHTML = '<div class="empty">Nenhum cliente encontrado</div>';
+    return;
+  }
+
+  lista.innerHTML = filtrados.map(it=>{
+    const dot = {ativo:'green', trial:'blue', vencendo:'orange', vencido:'red'}[it.st.tipo];
+    const corStatus = {ativo:'var(--green)', trial:'var(--blue)', vencendo:'var(--orange)', vencido:'var(--red)'}[it.st.tipo];
+    const valido = fmtData(it.g?.info?.validoAte || 0);
+    const zap = encodeURIComponent(`Olá ${it.nome}! Sobre seu Grana Pro (${it.codigo})...`);
+    return `
+      <div class="row">
+        <div>
+          <div class="cliente-nome">${it.nome}</div>
+          <div class="cliente-zap">${it.g?.info?.modo === 'grupo' ? '👫 Grupo' : '👤 Individual'}</div>
+        </div>
+        <div class="codigo">${it.codigo}</div>
+        <div><span class="modo-badge ${it.g?.info?.modo === 'grupo' ? 'modo-grupo' : 'modo-solo'}">${it.g?.info?.modo === 'grupo' ? 'Grupo' : 'Solo'}</span></div>
+        <div>
+          <div class="status" style="color:${corStatus}"><span class="dot dot-${dot}"></span>${it.st.label}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">vence ${valido}</div>
+        </div>
+        <div class="acoes">
+          <button class="btn-acao green" onclick="renovar('${it.codigo}', 30)">+30 dias</button>
+          <button class="btn-acao green" onclick="renovar('${it.codigo}', 90)">+90d</button>
+          <a class="btn-acao zap" href="https://wa.me/${WHATSAPP_NUMERO}?text=${zap}" target="_blank">💬</a>
+          <button class="btn-acao red" onclick="bloquear('${it.codigo}')">🚫</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function renderStats(){
+  const itens = Object.values(_grupos);
+  const total = itens.length;
+  let ativos=0, vencendo=0, trial=0;
+  itens.forEach(g=>{
+    const st = statusDoGrupo(g);
+    if(st.tipo==='ativo') ativos++;
+    if(st.tipo==='vencendo') vencendo++;
+    if(st.tipo==='trial') trial++;
+  });
+  const pagantes = ativos + vencendo;
+  document.getElementById('stat-total').textContent = total;
+  document.getElementById('stat-total-sub').textContent = trial+' em trial';
+  document.getElementById('stat-ativos').textContent = pagantes;
+  document.getElementById('stat-ativos-sub').textContent = total>0 ? Math.round(pagantes/total*100)+'% da base' : '—';
+  document.getElementById('stat-vencendo').textContent = vencendo;
+  const fat = pagantes * PRECO_MENSAL;
+  document.getElementById('stat-fat').textContent = 'R$ '+fat.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  document.getElementById('stat-fat-sub').textContent = pagantes+' × R$ '+PRECO_MENSAL.toFixed(2).replace('.',',');
+}
+
+// ── AÇÕES ──────────────────────────────────────────────────────────
+window.renovar = async function(codigo, dias){
+  const g = _grupos[codigo];
+  if(!g){ toast('Cliente não encontrado','error'); return; }
+  const atual = g?.info?.validoAte || 0;
+  const base  = Math.max(atual, Date.now());
+  const novo  = base + dias*86400000;
+  await update(ref(db, `grupos/${codigo}/info`), { plano:'pro', validoAte:novo });
+  toast('Renovado por +'+dias+' dias!','success');
+}
+
+window.bloquear = async function(codigo){
+  if(!confirm('Bloquear acesso deste cliente?\n\nEle vai ver a tela de assinatura vencida.')) return;
+  await update(ref(db, `grupos/${codigo}/info`), { plano:'free', validoAte:0 });
+  toast('Cliente bloqueado','success');
+}
+
+function toast(msg, tipo){
+  const t = document.createElement('div');
+  t.className = 'toast '+(tipo||'');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.classList.add('show'),10);
+  setTimeout(()=>{ t.classList.remove('show'); setTimeout(()=>t.remove(),300); }, 2400);
+}
+</script>
+
+</body>
+</html>

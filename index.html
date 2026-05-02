@@ -43,7 +43,82 @@ let membros = [];
 let membroAtivo = null;
 let _dados = { ganhos:[], gastos:[], fixos:[], historico:[] };
 let _customCats = [];
+let _info = { plano:'free', validoAte:0 }; // dados de assinatura do grupo
 let mesAtivoIdx  = now.getMonth();
+
+// ── CONFIGURAÇÕES COMERCIAIS ──────────────────────────────────────────────
+const LIMITE_FREE_LANCAMENTOS = 40;     // ← AJUSTÁVEL: limite mensal no Free
+const TRIAL_DIAS = 7;                    // ← Pro grátis ao criar conta
+const PRECO_MENSAL = 'R$ 9,90';
+const WHATSAPP_NUMERO = '5585991053816'; // (85) 99105-3816 com DDI
+const WHATSAPP_MSG = (codigo, nome) =>
+  `Olá! Quero assinar o Grana Pro Pro%0A%0ANome: ${nome||'-'}%0AC%C3%B3digo: ${codigo||'-'}`;
+
+function isPro(){
+  if(!_info) return false;
+  if(_info.plano !== 'pro' && _info.plano !== 'trial') return false;
+  return (_info.validoAte || 0) > Date.now();
+}
+function diasRestantes(){
+  if(!_info?.validoAte) return 0;
+  return Math.max(0, Math.ceil((_info.validoAte - Date.now())/86400000));
+}
+function countLancamentosMes(){
+  const m = getMesAtivo();
+  const g = (_dados.ganhos||[]).filter(x=>(x.mes||getML())===m && x.pid===meuPerfil).length;
+  const s = (_dados.gastos||[]).filter(x=>(x.mes||getML())===m && x.pid===meuPerfil).length;
+  return g + s;
+}
+function getWhatsappLink(){
+  const c = grupoCode || '';
+  return `https://wa.me/${WHATSAPP_NUMERO}?text=${WHATSAPP_MSG(c, meuNome)}`;
+}
+
+function atualizarBadgesPlano(){
+  const banner = document.getElementById('banner-plano');
+  if(!banner) return;
+  const usados = countLancamentosMes();
+  const restantes = LIMITE_FREE_LANCAMENTOS - usados;
+
+  if(isPro()){
+    if(_info.plano === 'trial'){
+      const dias = diasRestantes();
+      banner.innerHTML = `<div class="banner-plano trial">
+        🎁 <strong>Trial Pro ativo</strong> · ${dias} dia${dias===1?'':'s'} restante${dias===1?'':'s'}
+        <button onclick="abrirModalPro('trial')" class="banner-btn">Assinar</button>
+      </div>`;
+      banner.style.display = 'block';
+    } else {
+      banner.style.display = 'none';
+    }
+  } else if(_info.plano === 'pro' || _info.plano === 'trial'){
+    // Pro venceu (trial expirado conta como Free)
+    banner.innerHTML = `<div class="banner-plano vencido">
+      ⚠️ <strong>Plano Pro venceu</strong> · funções extras travadas
+      <button onclick="abrirModalPro('vencido')" class="banner-btn">Renovar ${PRECO_MENSAL}</button>
+    </div>`;
+    banner.style.display = 'block';
+  } else {
+    // Free puro
+    if(restantes <= 10){
+      const cor = restantes <= 0 ? 'vencido' : 'trial';
+      const txt = restantes <= 0
+        ? `🚫 <strong>Limite atingido</strong> (${usados}/${LIMITE_FREE_LANCAMENTOS} este mês)`
+        : `⚠️ Faltam <strong>${restantes}</strong> de ${LIMITE_FREE_LANCAMENTOS} lançamentos no plano grátis`;
+      banner.innerHTML = `<div class="banner-plano ${cor}">
+        ${txt}
+        <button onclick="abrirModalPro('limite')" class="banner-btn">Liberar ilimitado</button>
+      </div>`;
+      banner.style.display = 'block';
+    } else {
+      banner.innerHTML = `<div class="banner-plano free">
+        📊 ${usados}/${LIMITE_FREE_LANCAMENTOS} lançamentos este mês · plano grátis
+        <button onclick="abrirModalPro('upgrade')" class="banner-btn">Ver Pro</button>
+      </div>`;
+      banner.style.display = 'block';
+    }
+  }
+}
 let mesAtivoYear = now.getFullYear();
 
 // ── UTILS ──────────────────────────────────────────────────────────────────
@@ -98,6 +173,8 @@ function init(){
 }
 
 window.selecionarModo = function(modo){
+  // Modo Casal/Família é Pro — só bloqueia se já tiver conta logada
+  // Para nova conta, libera (vai começar com trial 7 dias)
   modoApp = modo;
   showScreen('tela-cadastro');
   document.getElementById('subtitulo-cadastro').textContent = modo==='solo'
@@ -116,7 +193,8 @@ window.entrarSolo = async function(){
   grupoCode = 'solo_' + gerarCodigo();
   meuPerfil = 'p1';
   membroAtivo = 'p1';
-  await set(ref(db,`grupos/${grupoCode}/info`),{modo:'solo', criado:Date.now()});
+  const trialFim = Date.now() + TRIAL_DIAS*86400000;
+  await set(ref(db,`grupos/${grupoCode}/info`),{modo:'solo', criado:Date.now(), plano:'trial', validoAte:trialFim});
   await set(ref(db,`grupos/${grupoCode}/membros/p1`),{nome, cor:'#d4af37', ts:Date.now()});
   salvarLocal();
   document.getElementById('codigo-solo-gerado').textContent = grupoCode;
@@ -152,7 +230,8 @@ window.criarGrupo = async function(){
   meuPerfil = 'p1';
   membroAtivo = 'p1';
   const cores = ['#d4af37','#f97316','#10b981','#ec4899','#3b82f6','#8b5cf6'];
-  await set(ref(db,`grupos/${grupoCode}/info`),{modo:'grupo', criado:Date.now()});
+  const trialFim = Date.now() + TRIAL_DIAS*86400000;
+  await set(ref(db,`grupos/${grupoCode}/info`),{modo:'grupo', criado:Date.now(), plano:'trial', validoAte:trialFim});
   await set(ref(db,`grupos/${grupoCode}/membros/p1`),{nome, cor:cores[0], ts:Date.now()});
   salvarLocal();
   document.getElementById('codigo-gerado').textContent = grupoCode;
@@ -213,6 +292,21 @@ function iniciarApp(){
 // ── LISTENERS ──────────────────────────────────────────────────────────────
 function escutarDados(){
   _dados = { ganhos:[], gastos:[], fixos:[], historico:[] };
+
+  // Escuta o info do grupo (plano, validoAte) — se não existe, cria como trial
+  onValue(ref(db,`grupos/${grupoCode}/info`), snap=>{
+    const v = snap.val() || {};
+    if(!v.plano){
+      // conta antiga sem plano: dá trial de 7 dias
+      const trialFim = Date.now() + TRIAL_DIAS*86400000;
+      _info = { plano:'trial', validoAte:trialFim, modo:v.modo||modoApp };
+      update(ref(db,`grupos/${grupoCode}/info`), {plano:'trial', validoAte:trialFim});
+    } else {
+      _info = v;
+    }
+    atualizarBadgesPlano();
+    if(typeof renderMeu === 'function' && document.getElementById('sec-meu')?.classList.contains('active')) renderMeu();
+  });
 
   onValue(ref(db,`grupos/${grupoCode}/membros`), snap=>{
     const raw = snap.val()
@@ -318,6 +412,11 @@ window.mesPosterior = function(){
 
 // ── NAV ABAS ───────────────────────────────────────────────────────────────
 window.showSection = function(name, idx){
+  // Histórico é Pro
+  if(name==='historico' && !isPro()){
+    abrirModalPro('feature');
+    return;
+  }
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(n=>n.classList.remove('active'));
   document.getElementById('sec-'+name).classList.add('active');
@@ -366,6 +465,7 @@ function mensagemMotivacional(saldo, totalGanho){
 }
 
 function renderMeu(){
+  atualizarBadgesPlano();
   const target = membroAtivo || meuPerfil;
   const membro = membros.find(m=>m.id===target);
   if(!membro) return;
@@ -447,9 +547,9 @@ function renderMeu(){
     catCard.style.display = 'none';
   }
 
-  // ALERTA CONTAS A VENCER
+  // ALERTA CONTAS A VENCER (Pro)
   const alertaEl = document.getElementById('alerta-vencimento');
-  if(alertaEl && isEu){
+  if(alertaEl && isEu && isPro()){
     const hoje = new Date();
     const diaHoje = hoje.getDate();
     const fixosPendentes = filtrarMes(_dados.fixos).filter(f=>f.pid===membro.id && !f.pago && f.dia);
@@ -560,6 +660,11 @@ let _modalCat  = 'Alimentação';
 let _modalEditKey = null;
 
 window.abrirModal = function(tipo, editKey){
+  // Checa limite de lançamentos no Free
+  if(!editKey && !isPro() && countLancamentosMes() >= LIMITE_FREE_LANCAMENTOS){
+    abrirModalPro('limite');
+    return;
+  }
   _modalTipo = tipo;
   _modalCat = 'Alimentação';
   _modalEditKey = editKey || null;
@@ -599,7 +704,7 @@ window.abrirModal = function(tipo, editKey){
   // VALORES RÁPIDOS (só no Recebi, com base no histórico)
   const quickEl = document.getElementById('modal-quick-vals');
   if(quickEl){
-    if(tipo==='in' && !_modalEditKey){
+    if(tipo==='in' && !_modalEditKey && isPro()){
       const freq = {};
       _dados.ganhos.forEach(g=>{ if(g.valor) freq[g.valor]=(freq[g.valor]||0)+1; });
       const top3 = Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([v])=>parseFloat(v));
@@ -661,6 +766,7 @@ window.selecionarCat = function(nome){
 }
 
 window.criarCategoria = async function(origem){
+  if(!isPro()){ abrirModalPro('feature'); return; }
   const emoji = (prompt('Digite um emoji pra categoria (ex: 💼 🏋️ 💳):') || '').trim();
   if(!emoji) return;
   const nome  = (prompt('Digite o nome da categoria:') || '').trim();
@@ -740,6 +846,7 @@ window.abrirEditarFixo = function(key){
 }
 
 window.abrirCriarFixo = function(){
+  if(!isPro()){ abrirModalPro('feature'); return; }
   _editFixoKey = null;
   _fixoCat     = 'Moradia';
   document.getElementById('modal-fixo-titulo').textContent = '📋 Nova conta';
@@ -822,6 +929,8 @@ function filtrarPorPeriodo(arr, periodo){
 }
 
 window.setResumoPeriodo = function(p){
+  // Hoje/Semana são Pro
+  if((p==='hoje' || p==='semana') && !isPro()){ abrirModalPro('feature'); return; }
   _resumoPeriodo = p;
   document.querySelectorAll('.resumo-period-btn').forEach(b=>{
     b.classList.toggle('active', b.dataset.p===p);
@@ -1119,7 +1228,32 @@ window.delHistorico = async function(key, mes){
   showToast('Histórico removido');
 }
 
+window.abrirModalPro = function(motivo){
+  const titulos = {
+    limite:   'Você atingiu o limite mensal!',
+    vencido:  'Seu Pro venceu — renove pra liberar tudo',
+    trial:    'Aproveite e assine antes do trial acabar!',
+    upgrade:  'Libere o Grana Pro completo',
+    feature:  'Esta função é Pro 👑'
+  };
+  const subs = {
+    limite:  `Você usou ${countLancamentosMes()} de ${LIMITE_FREE_LANCAMENTOS} lançamentos. No Pro é <strong>ilimitado</strong> por <strong style="color:var(--gold)">${PRECO_MENSAL}</strong>`,
+    vencido: `Seu acesso Pro venceu, mas seus dados estão guardados. Renove por <strong style="color:var(--gold)">${PRECO_MENSAL}</strong>`,
+    trial:   `Você está no trial gratuito. Continue com tudo liberado por <strong style="color:var(--gold)">${PRECO_MENSAL}/mês</strong>`,
+    upgrade: `Por apenas <strong style="color:var(--gold)">${PRECO_MENSAL}/mês</strong> você desbloqueia tudo`,
+    feature: `Libere todas as funções por <strong style="color:var(--gold)">${PRECO_MENSAL}/mês</strong>`
+  };
+  document.getElementById('modal-pro-titulo').textContent = titulos[motivo] || titulos.upgrade;
+  document.getElementById('modal-pro-sub').innerHTML       = subs[motivo]    || subs.upgrade;
+  document.getElementById('modal-pro-zap').href            = getWhatsappLink();
+  document.getElementById('modal-pro').classList.add('show');
+}
+window.fecharModalPro = function(){
+  document.getElementById('modal-pro').classList.remove('show');
+}
+
 window.compartilharResumo = async function(){
+  if(!isPro()){ abrirModalPro('feature'); return; }
   const p = _resumoPeriodo;
   const periodoLabel = {hoje:'Hoje', semana:'Últimos 7 dias', mes:getMesAtivo()}[p];
   const ganhos = filtrarPorPeriodo(_dados.ganhos, p).filter(g=>g.pid===meuPerfil);
@@ -1586,6 +1720,22 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
   line-height:1.4;
 }
 .alerta-venc strong{color:var(--text1);}
+.banner-plano{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 14px;border-radius:12px;font-size:12px;color:var(--text2);margin-bottom:10px;border:1px solid var(--border);line-height:1.4;}
+.banner-plano strong{color:var(--text1);}
+.banner-plano.free{background:var(--surface2);}
+.banner-plano.trial{background:rgba(34,197,94,0.08);border-color:rgba(34,197,94,0.25);color:var(--text2);}
+.banner-plano.vencido{background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.3);color:var(--text2);}
+.banner-btn{background:var(--gold);color:#0a0800;border:none;border-radius:8px;padding:6px 12px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;}
+.banner-btn:active{transform:scale(0.95);}
+.pro-feat{font-size:13px;color:var(--text1);padding:5px 0;}
+.lock-overlay{position:relative;}
+.lock-overlay::after{
+  content:'👑 Pro';
+  position:absolute;top:8px;right:8px;
+  background:var(--gold);color:#0a0800;
+  font-size:10px;font-weight:700;padding:3px 8px;border-radius:8px;
+  pointer-events:none;
+}
 .resumo-period{display:flex;gap:4px;background:var(--surface2);border-radius:14px;padding:4px;margin-bottom:14px;}
 .resumo-period-btn{flex:1;background:transparent;border:none;color:var(--text2);font-family:inherit;font-size:13px;font-weight:600;padding:10px 0;border-radius:10px;cursor:pointer;transition:0.15s;-webkit-tap-highlight-color:transparent;}
 .resumo-period-btn.active{background:var(--surface3);color:var(--text1);box-shadow:0 1px 3px rgba(0,0,0,0.4);}
@@ -1880,6 +2030,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         <div class="saldo-valor" id="meu-saldo">R$ 0</div>
         <div class="mensagem-status" id="msg-status">Comece lançando uma entrada</div>
       </div>
+
+      <!-- BANNER PLANO (free / trial / pro vencido) -->
+      <div id="banner-plano" style="display:none"></div>
 
       <!-- ALERTA CONTAS A VENCER -->
       <div id="alerta-vencimento" style="display:none"></div>
@@ -2208,6 +2361,35 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
       <button class="modal-btn modal-btn-cancel" onclick="fecharModal()">Cancelar</button>
       <button class="modal-btn modal-btn-confirm in" id="modal-btn-confirm" onclick="confirmarModal()">Confirmar</button>
     </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     MODAL VIRE PRO
+════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-pro" onclick="if(event.target===this)fecharModalPro()">
+  <div class="modal-card">
+    <div class="modal-handle"></div>
+    <div style="text-align:center;padding:8px 0 4px">
+      <div style="font-size:48px">👑</div>
+      <div id="modal-pro-titulo" style="font-size:20px;font-weight:800;color:var(--gold);margin-top:6px">Libere o Grana Pro completo</div>
+      <div id="modal-pro-sub" style="font-size:13px;color:var(--text2);margin-top:4px;line-height:1.5">Por apenas <strong style="color:var(--gold)">R$ 9,90/mês</strong> você desbloqueia tudo</div>
+    </div>
+
+    <div style="background:var(--surface2);border-radius:12px;padding:14px;margin:14px 0">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:8px">Você ganha:</div>
+      <div class="pro-feat">📋 Contas fixas com vencimento</div>
+      <div class="pro-feat">⚠️ Alertas de contas a vencer</div>
+      <div class="pro-feat">🗂 Histórico ilimitado de meses</div>
+      <div class="pro-feat">👫 Modo Casal / Família</div>
+      <div class="pro-feat">📊 Resumo Hoje · Semana · Mês</div>
+      <div class="pro-feat">🎨 Categorias customizadas</div>
+      <div class="pro-feat">📤 Compartilhar resumo via WhatsApp</div>
+      <div class="pro-feat">♾️ Lançamentos ilimitados</div>
+    </div>
+
+    <a id="modal-pro-zap" href="#" class="modal-btn modal-btn-confirm in" style="text-decoration:none;display:block;text-align:center;background:#25d366">💬 Pagar pelo WhatsApp</a>
+    <button class="modal-btn modal-btn-cancel" onclick="fecharModalPro()" style="margin-top:8px;width:100%">Continuar grátis</button>
   </div>
 </div>
 
