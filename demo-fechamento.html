@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<title>Demo — Hoje / Semana / Mês</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#070707; --surface:#0f0f0f; --surface2:#181818; --surface3:#222;
+  --border:rgba(255,255,255,0.06);
+  --text1:#f5f0e1; --text2:rgba(245,240,225,0.65); --text3:rgba(245,240,225,0.4);
+  --gold:#d4af37; --green:#22c55e; --red:#ef4444; --orange:#f97316;
+  --green-bg:rgba(34,197,94,0.08); --red-bg:rgba(239,68,68,0.08);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text1);font-family:'Inter',sans-serif;min-height:100vh;}
+.wrap{max-width:380px;margin:0 auto;padding:0 16px 80px;}
+
+/* HEADER */
+.app-header{display:flex;justify-content:space-between;align-items:center;padding:16px 0;border-bottom:1px solid var(--border);margin-bottom:8px;}
+.app-logo{font-size:18px;font-weight:800;color:var(--gold);}
+.code-badge{background:var(--surface2);border:1px solid var(--gold);color:var(--gold);font-size:11px;font-weight:600;padding:5px 10px;border-radius:12px;}
+
+/* PERIOD SWITCHER */
+.period-switch{display:flex;gap:4px;background:var(--surface2);border-radius:14px;padding:4px;margin:14px 0 8px;}
+.period-btn{flex:1;background:transparent;border:none;color:var(--text2);font-family:inherit;font-size:13px;font-weight:600;padding:10px 0;border-radius:10px;cursor:pointer;transition:0.15s;}
+.period-btn.active{background:var(--surface3);color:var(--text1);box-shadow:0 1px 3px rgba(0,0,0,0.4);}
+
+/* PERIOD NAV */
+.period-nav{display:flex;justify-content:center;align-items:center;gap:14px;color:var(--text2);font-size:13px;font-weight:500;padding:6px 0 10px;}
+.period-nav button{background:transparent;border:none;color:var(--text2);font-size:18px;cursor:pointer;padding:0 4px;}
+.period-label{min-width:170px;text-align:center;color:var(--text1);font-weight:600;font-size:14px;}
+
+/* SALDO HERO */
+.saldo-hero{text-align:center;padding:6px 0 16px;}
+.saldo-label{font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--text3);margin-bottom:6px;}
+.saldo-valor{font-size:46px;font-weight:800;letter-spacing:-2px;line-height:1;
+  background:linear-gradient(180deg,#3de077 0%,#22c55e 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:14px;}
+.mensagem-status{display:inline-block;background:var(--green-bg);color:var(--green);border:1px solid rgba(34,197,94,0.25);padding:8px 14px;border-radius:20px;font-size:13px;font-weight:500;}
+
+/* MINI CARDS */
+.mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
+.mini-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;}
+.mini-label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:4px;}
+.mini-val{font-size:18px;font-weight:700;}
+.mini-val.up{color:var(--gold);}
+.mini-val.down{color:var(--red);}
+
+/* QUICK STATS — mostrado em Hoje */
+.quick-stats{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:12px;}
+.qs-titulo{font-size:14px;font-weight:600;color:var(--text1);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;}
+.qs-pill{font-size:11px;font-weight:600;color:var(--text3);background:var(--surface2);padding:4px 10px;border-radius:10px;}
+.qs-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:13px;border-top:1px solid var(--border);}
+.qs-row:first-of-type{border-top:none;}
+.qs-row span:last-child{font-weight:600;}
+
+/* BOTÕES GRANDES */
+.botoes-acao{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
+.btn-grande{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px 14px;text-align:center;cursor:pointer;}
+.btn-recebi{background:linear-gradient(135deg,#f0c84a,#d4af37);color:#0a0800;border:none;}
+.btn-gastei{background:linear-gradient(135deg,#ff7a7a,#ef4444);color:#fff;border:none;}
+.btn-icon{font-size:24px;margin-bottom:4px;}
+.btn-titulo{font-size:16px;font-weight:700;}
+.btn-sub{font-size:11px;opacity:0.85;}
+
+/* CARDS */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:12px;}
+.card-title{font-size:14px;font-weight:600;margin-bottom:10px;color:var(--text1);display:flex;justify-content:space-between;align-items:center;}
+.card-title small{font-weight:400;color:var(--text3);font-size:11px;}
+
+/* TX LIST */
+.tx-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--border);}
+.tx-item:first-child{border-top:none;}
+.tx-icon-circle{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+.tx-icon-circle.in{background:var(--green-bg);color:var(--green);}
+.tx-icon-circle.out{background:var(--red-bg);color:var(--red);}
+.tx-info{flex:1;min-width:0;}
+.tx-nome{font-size:13px;font-weight:500;color:var(--text1);}
+.tx-data{font-size:11px;color:var(--text3);margin-top:2px;}
+.tx-valor{font-size:14px;font-weight:600;}
+.tx-valor.in{color:var(--green);}
+.tx-valor.out{color:var(--red);}
+
+/* FOOTER NOTE */
+.footer-note{text-align:center;color:var(--text3);font-size:11px;padding:24px 12px;line-height:1.5;}
+.footer-note strong{color:var(--gold);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- HEADER -->
+  <div class="app-header">
+    <div class="app-logo">Grana Pro</div>
+    <div class="code-badge">código</div>
+  </div>
+
+  <!-- PERIOD SWITCHER -->
+  <div class="period-switch">
+    <button class="period-btn active" onclick="setPeriodo('hoje')" id="btn-hoje">Hoje</button>
+    <button class="period-btn" onclick="setPeriodo('semana')" id="btn-semana">Semana</button>
+    <button class="period-btn" onclick="setPeriodo('mes')" id="btn-mes">Mês</button>
+  </div>
+
+  <!-- PERIOD NAV (← → mudar dia/semana/mês) -->
+  <div class="period-nav">
+    <button>‹</button>
+    <span class="period-label" id="periodo-label">Hoje, 02/05</span>
+    <button>›</button>
+  </div>
+
+  <!-- SALDO HERO -->
+  <div class="saldo-hero">
+    <div class="saldo-label" id="saldo-label">Saldo de hoje</div>
+    <div class="saldo-valor" id="saldo-valor">R$ 370,00</div>
+    <div class="mensagem-status" id="msg-status">✨ Ótimo dia! Você lucrou bem hoje</div>
+  </div>
+
+  <!-- MINI CARDS -->
+  <div class="mini-grid">
+    <div class="mini-card"><div class="mini-label">Entrou</div><div class="mini-val up" id="mini-in">R$ 450,00</div></div>
+    <div class="mini-card"><div class="mini-label">Saiu</div><div class="mini-val down" id="mini-out">R$ 80,00</div></div>
+  </div>
+
+  <!-- QUICK STATS — só aparece em "Hoje" e "Semana" -->
+  <div class="quick-stats" id="quick-stats">
+    <div class="qs-titulo">
+      <span id="qs-titulo-txt">📊 Resumo do dia</span>
+      <span class="qs-pill" id="qs-pill">5 lançamentos</span>
+    </div>
+    <div class="qs-row"><span>Atendimentos / entradas</span><span style="color:var(--gold)" id="qs-entradas">4 · R$ 450,00</span></div>
+    <div class="qs-row"><span>Gastos / saídas</span><span style="color:var(--red)" id="qs-saidas">1 · R$ 80,00</span></div>
+    <div class="qs-row"><span>Ticket médio</span><span style="color:var(--text2)" id="qs-ticket">R$ 112,50</span></div>
+  </div>
+
+  <!-- BOTÕES -->
+  <div class="botoes-acao">
+    <button class="btn-grande btn-recebi"><div class="btn-icon">💰</div><div class="btn-titulo">Recebi</div><div class="btn-sub">Lançar entrada</div></button>
+    <button class="btn-grande btn-gastei"><div class="btn-icon">💸</div><div class="btn-titulo">Gastei</div><div class="btn-sub">Lançar saída</div></button>
+  </div>
+
+  <!-- ÚLTIMAS MOVIMENTAÇÕES -->
+  <div class="card">
+    <div class="card-title">Movimentações <small id="tx-count">de hoje</small></div>
+    <div id="tx-lista">
+      <div class="tx-item"><div class="tx-icon-circle in">↑</div><div class="tx-info"><div class="tx-nome">Corte cliente</div><div class="tx-data">Hoje, 16:30</div></div><div class="tx-valor in">+R$ 50,00</div></div>
+      <div class="tx-item"><div class="tx-icon-circle in">↑</div><div class="tx-info"><div class="tx-nome">Barba + corte</div><div class="tx-data">Hoje, 14:15</div></div><div class="tx-valor in">+R$ 80,00</div></div>
+      <div class="tx-item"><div class="tx-icon-circle out">↓</div><div class="tx-info"><div class="tx-nome">Pomada</div><div class="tx-data">Hoje, 11:00</div></div><div class="tx-valor out">−R$ 80,00</div></div>
+      <div class="tx-item"><div class="tx-icon-circle in">↑</div><div class="tx-info"><div class="tx-nome">Corte cliente</div><div class="tx-data">Hoje, 10:30</div></div><div class="tx-valor in">+R$ 50,00</div></div>
+      <div class="tx-item"><div class="tx-icon-circle in">↑</div><div class="tx-info"><div class="tx-nome">Barba</div><div class="tx-data">Hoje, 09:00</div></div><div class="tx-valor in">+R$ 270,00</div></div>
+    </div>
+  </div>
+
+  <div class="footer-note">
+    Demo do <strong>seletor Hoje · Semana · Mês</strong><br>
+    Toque nos botões acima pra ver como muda
+  </div>
+</div>
+
+<script>
+const dados = {
+  hoje:    { saldo:'R$ 370,00', entrada:'R$ 450,00', saida:'R$ 80,00', label:'Hoje, 02/05', saldoLabel:'Saldo de hoje',     msg:'✨ Ótimo dia! Você lucrou bem hoje',    qsTitulo:'📊 Resumo do dia',    qsPill:'5 lançamentos',  entradas:'4 · R$ 450,00',  saidas:'1 · R$ 80,00',  ticket:'R$ 112,50',   txCount:'de hoje' },
+  semana:  { saldo:'R$ 2.140,00', entrada:'R$ 2.450,00', saida:'R$ 310,00', label:'28/04 a 04/05',  saldoLabel:'Saldo da semana', msg:'✨ Semana boa! Você sobrou bem',         qsTitulo:'📊 Resumo da semana', qsPill:'24 lançamentos', entradas:'21 · R$ 2.450,00',saidas:'3 · R$ 310,00', ticket:'R$ 116,67',   txCount:'da semana' },
+  mes:     { saldo:'R$ 5.820,00', entrada:'R$ 7.300,00', saida:'R$ 1.480,00',label:'Maio 2026',     saldoLabel:'Saldo do mês',    msg:'✨ Boa! Você está sobrando R$ 5.820 esse mês', qsTitulo:'📊 Resumo do mês',    qsPill:'87 lançamentos', entradas:'72 · R$ 7.300,00',saidas:'15 · R$ 1.480,00',ticket:'R$ 101,39', txCount:'do mês' }
+};
+
+function setPeriodo(p){
+  document.querySelectorAll('.period-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('btn-'+p).classList.add('active');
+  const d = dados[p];
+  document.getElementById('saldo-valor').textContent = d.saldo;
+  document.getElementById('saldo-label').textContent = d.saldoLabel;
+  document.getElementById('mini-in').textContent     = d.entrada;
+  document.getElementById('mini-out').textContent    = d.saida;
+  document.getElementById('periodo-label').textContent = d.label;
+  document.getElementById('msg-status').textContent  = d.msg;
+  document.getElementById('qs-titulo-txt').textContent= d.qsTitulo;
+  document.getElementById('qs-pill').textContent     = d.qsPill;
+  document.getElementById('qs-entradas').textContent = d.entradas;
+  document.getElementById('qs-saidas').textContent   = d.saidas;
+  document.getElementById('qs-ticket').textContent   = d.ticket;
+  document.getElementById('tx-count').textContent    = d.txCount;
+}
+</script>
+</body>
+</html>
