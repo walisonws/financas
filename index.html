@@ -805,37 +805,105 @@ window.confirmarFixo = async function(){
 }
 
 // ── ABA RESUMO ───────────────────────────────────────────────────────────────
+let _resumoPeriodo = 'mes'; // 'hoje' | 'semana' | 'mes'
+
+function filtrarPorPeriodo(arr, periodo){
+  if(periodo === 'mes') return filtrarMes(arr);
+  const agora = new Date();
+  const hoje0 = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate()).getTime();
+  if(periodo === 'hoje'){
+    return (arr||[]).filter(x => x.ts && x.ts >= hoje0);
+  }
+  if(periodo === 'semana'){
+    const sete0 = hoje0 - 6*86400000; // últimos 7 dias incluindo hoje
+    return (arr||[]).filter(x => x.ts && x.ts >= sete0);
+  }
+  return [];
+}
+
+window.setResumoPeriodo = function(p){
+  _resumoPeriodo = p;
+  document.querySelectorAll('.resumo-period-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.p===p);
+  });
+  renderResumo();
+}
+
 function renderResumo(){
+  const periodSwitch = document.querySelector('.resumo-period');
   if(modoApp==='solo'){
     document.getElementById('resumo-grupo').style.display = 'none';
     document.getElementById('resumo-solo').style.display  = 'block';
+    if(periodSwitch) periodSwitch.style.display = 'flex';
     renderResumoSolo();
   } else {
     document.getElementById('resumo-grupo').style.display = 'block';
     document.getElementById('resumo-solo').style.display  = 'none';
+    if(periodSwitch) periodSwitch.style.display = 'none';
     renderResumoGrupo();
   }
 }
 
 function renderResumoSolo(){
-  const ganhos         = filtrarMes(_dados.ganhos).filter(g=>g.pid===meuPerfil);
-  const gastos         = filtrarMes(_dados.gastos).filter(g=>g.pid===meuPerfil);
-  const fixosPagos     = filtrarMes(_dados.fixos).filter(f=>f.pid===meuPerfil && f.pago===true);
-  const fixosPendentes = filtrarMes(_dados.fixos).filter(f=>f.pid===meuPerfil && !f.pago);
+  const p = _resumoPeriodo;
+  const ganhos = filtrarPorPeriodo(_dados.ganhos, p).filter(g=>g.pid===meuPerfil);
+  const gastos = filtrarPorPeriodo(_dados.gastos, p).filter(g=>g.pid===meuPerfil);
 
-  const tG         = ganhos.reduce((a,b)=>a+(b.valor||0),0);
-  const tDiario    = gastos.reduce((a,b)=>a+(b.valor||0),0);
-  const tFixoPago  = fixosPagos.reduce((a,b)=>a+(b.valor||0),0);
-  const tFixoPend  = fixosPendentes.reduce((a,b)=>a+(b.valor||0),0);
-  const saldo      = tG - tDiario - tFixoPago;
+  const tG       = ganhos.reduce((a,b)=>a+(b.valor||0),0);
+  const tDiario  = gastos.reduce((a,b)=>a+(b.valor||0),0);
 
+  // Atualizar título/label conforme período
+  const labels = {
+    hoje:   { titulo:'Balanço de hoje',   sub:'Movimento do dia',          rendaLabel:'Entradas de hoje',   saldoLabel:'Saldo do dia' },
+    semana: { titulo:'Balanço da semana', sub:'Últimos 7 dias',            rendaLabel:'Entradas na semana', saldoLabel:'Saldo da semana' },
+    mes:    { titulo:'Balanço do mês',    sub:'Gastos diários separados dos fixos', rendaLabel:'Renda total', saldoLabel:'Saldo real do mês' }
+  };
+  document.getElementById('rs-titulo').textContent      = labels[p].titulo;
+  document.getElementById('rs-subtitulo').textContent   = labels[p].sub;
+  document.getElementById('rs-renda-label').textContent = labels[p].rendaLabel;
+  document.getElementById('rs-saldo-label').textContent = labels[p].saldoLabel;
   document.getElementById('rs-ganho').textContent       = fmt(tG);
-  document.getElementById('rs-gasto-diario').textContent= fmt(tDiario);
-  document.getElementById('rs-fixo-pago').textContent   = fmt(tFixoPago);
-  document.getElementById('rs-fixo-pend').textContent   = fmt(tFixoPend);
-  document.getElementById('rs-total-gasto').textContent = fmt(tDiario+tFixoPago);
-  document.getElementById('rs-saldo').textContent       = fmtSigned(saldo);
-  document.getElementById('rs-saldo').style.color       = saldo>=0?'var(--green)':'var(--red)';
+
+  if(p === 'mes'){
+    // Modo MÊS: detalhamento completo com fixos
+    const fixosPagos     = filtrarMes(_dados.fixos).filter(f=>f.pid===meuPerfil && f.pago===true);
+    const fixosPendentes = filtrarMes(_dados.fixos).filter(f=>f.pid===meuPerfil && !f.pago);
+    const tFixoPago = fixosPagos.reduce((a,b)=>a+(b.valor||0),0);
+    const tFixoPend = fixosPendentes.reduce((a,b)=>a+(b.valor||0),0);
+    const saldo     = tG - tDiario - tFixoPago;
+
+    document.getElementById('rs-detalhamento-mes').style.display = 'block';
+    document.getElementById('rs-stats-rapido').style.display     = 'none';
+    document.getElementById('rs-btn-fechar').style.display       = 'block';
+
+    document.getElementById('rs-gasto-diario').textContent= fmt(tDiario);
+    document.getElementById('rs-fixo-pago').textContent   = fmt(tFixoPago);
+    document.getElementById('rs-fixo-pend').textContent   = fmt(tFixoPend);
+    document.getElementById('rs-total-gasto').textContent = fmt(tDiario+tFixoPago);
+    document.getElementById('rs-saldo').textContent       = fmtSigned(saldo);
+    document.getElementById('rs-saldo').style.color       = saldo>=0?'var(--green)':'var(--red)';
+  } else {
+    // Modo HOJE / SEMANA: stats rápidos
+    const saldo  = tG - tDiario;
+    const ticket = ganhos.length > 0 ? tG/ganhos.length : 0;
+
+    document.getElementById('rs-detalhamento-mes').style.display = 'none';
+    document.getElementById('rs-stats-rapido').style.display     = 'block';
+    document.getElementById('rs-btn-fechar').style.display       = 'none';
+
+    document.getElementById('rs-q-entradas').textContent = ganhos.length+' · '+fmt(tG);
+    document.getElementById('rs-q-saidas').textContent   = gastos.length+' · '+fmt(tDiario);
+    document.getElementById('rs-ticket').textContent     = fmt(ticket);
+    document.getElementById('rs-saldo-periodo').textContent = fmtSigned(saldo);
+    document.getElementById('rs-saldo-periodo').style.color = saldo>=0?'var(--green)':'var(--red)';
+    // Esconde também o saldo grande do mês
+    document.getElementById('rs-saldo-mes-wrap').style.display = 'none';
+  }
+
+  // Saldo grande só visível em modo mês
+  if(p === 'mes'){
+    document.getElementById('rs-saldo-mes-wrap').style.display = 'block';
+  }
 }
 
 function renderResumoGrupo(){
@@ -1052,29 +1120,32 @@ window.delHistorico = async function(key, mes){
 }
 
 window.compartilharResumo = async function(){
-  const mes = getMesAtivo();
-  const ganhos    = filtrarMes(_dados.ganhos).filter(g=>g.pid===meuPerfil);
-  const gastos    = filtrarMes(_dados.gastos).filter(g=>g.pid===meuPerfil);
-  const fixosPagos= filtrarMes(_dados.fixos).filter(f=>f.pid===meuPerfil && f.pago);
-  const tG  = ganhos.reduce((a,b)=>a+(b.valor||0),0);
-  const tD  = gastos.reduce((a,b)=>a+(b.valor||0),0);
-  const tF  = fixosPagos.reduce((a,b)=>a+(b.valor||0),0);
+  const p = _resumoPeriodo;
+  const periodoLabel = {hoje:'Hoje', semana:'Últimos 7 dias', mes:getMesAtivo()}[p];
+  const ganhos = filtrarPorPeriodo(_dados.ganhos, p).filter(g=>g.pid===meuPerfil);
+  const gastos = filtrarPorPeriodo(_dados.gastos, p).filter(g=>g.pid===meuPerfil);
+  const tG = ganhos.reduce((a,b)=>a+(b.valor||0),0);
+  const tD = gastos.reduce((a,b)=>a+(b.valor||0),0);
+  let tF = 0, linhasFixo = '';
+  if(p === 'mes'){
+    const fixosPagos = filtrarMes(_dados.fixos).filter(f=>f.pid===meuPerfil && f.pago);
+    tF = fixosPagos.reduce((a,b)=>a+(b.valor||0),0);
+    linhasFixo = `\n📋 Contas fixas pagas: ${fmt(tF)}`;
+  }
   const saldo = tG - tD - tF;
 
-  const linha = (l,v) => `${l}: ${v}`;
   const texto = [
-    `📊 *Grana Pro — ${mes}*`,
+    `📊 *Grana Pro — ${periodoLabel}*`,
     `👤 ${meuNome}`,
     ``,
-    linha('💰 Recebi', fmt(tG)),
-    linha('💸 Gastos diários', fmt(tD)),
-    linha('📋 Contas fixas pagas', fmt(tF)),
+    `💰 Recebi: ${fmt(tG)} (${ganhos.length})`,
+    `💸 Gastei: ${fmt(tD)} (${gastos.length})${linhasFixo}`,
     ``,
-    linha(saldo>=0 ? '✅ Saldo' : '❌ Saldo', fmtSigned(saldo)),
+    `${saldo>=0 ? '✅' : '❌'} Saldo: ${fmtSigned(saldo)}`,
   ].join('\n');
 
   if(navigator.share){
-    try{ await navigator.share({title:'Grana Pro — '+mes, text:texto}); return; }catch(e){}
+    try{ await navigator.share({title:'Grana Pro — '+periodoLabel, text:texto}); return; }catch(e){}
   }
   try{ await navigator.clipboard.writeText(texto); showToast('Resumo copiado!'); }
   catch(e){ showToast('Não foi possível compartilhar','error'); }
@@ -1515,6 +1586,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
   line-height:1.4;
 }
 .alerta-venc strong{color:var(--text1);}
+.resumo-period{display:flex;gap:4px;background:var(--surface2);border-radius:14px;padding:4px;margin-bottom:14px;}
+.resumo-period-btn{flex:1;background:transparent;border:none;color:var(--text2);font-family:inherit;font-size:13px;font-weight:600;padding:10px 0;border-radius:10px;cursor:pointer;transition:0.15s;-webkit-tap-highlight-color:transparent;}
+.resumo-period-btn.active{background:var(--surface3);color:var(--text1);box-shadow:0 1px 3px rgba(0,0,0,0.4);}
 
 /* BOTÕES GRANDES RECEBI/GASTEI */
 .botoes-acao{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:16px 0 12px;}
@@ -1864,21 +1938,29 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
     ══════════════════════════════════ -->
     <div class="section" id="sec-resumo">
 
+      <!-- Seletor de período -->
+      <div class="resumo-period">
+        <button class="resumo-period-btn" data-p="hoje"   onclick="setResumoPeriodo('hoje')">Hoje</button>
+        <button class="resumo-period-btn" data-p="semana" onclick="setResumoPeriodo('semana')">Semana</button>
+        <button class="resumo-period-btn active" data-p="mes" onclick="setResumoPeriodo('mes')">Mês</button>
+      </div>
+
       <!-- Solo -->
       <div id="resumo-solo" style="display:none">
         <div class="sec-header">
-          <div class="sec-titulo">Balanço do mês</div>
-          <div class="sec-subtitulo">Gastos diários separados dos fixos</div>
+          <div class="sec-titulo" id="rs-titulo">Balanço do mês</div>
+          <div class="sec-subtitulo" id="rs-subtitulo">Gastos diários separados dos fixos</div>
         </div>
 
         <div class="metrics-row">
           <div class="metric au metric-full">
-            <div class="metric-label">Renda total</div>
+            <div class="metric-label" id="rs-renda-label">Renda total</div>
             <div class="metric-value" id="rs-ganho">R$ 0</div>
           </div>
         </div>
 
-        <div class="card">
+        <!-- Detalhamento (só MÊS) -->
+        <div class="card" id="rs-detalhamento-mes">
           <div class="card-title">Detalhamento de gastos</div>
           <div class="balanco-row">
             <span style="color:var(--text2)">Gastos diários</span>
@@ -1898,12 +1980,21 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
           </div>
         </div>
 
-        <div class="metric g metric-full" style="margin-bottom:14px">
-          <div class="metric-label">Saldo real do mês</div>
+        <!-- Stats (só HOJE / SEMANA) -->
+        <div class="card" id="rs-stats-rapido" style="display:none">
+          <div class="card-title">Movimento</div>
+          <div class="balanco-row"><span style="color:var(--text2)">Entradas</span><span style="color:var(--green);font-weight:600" id="rs-q-entradas">0 · R$ 0</span></div>
+          <div class="balanco-row"><span style="color:var(--text2)">Saídas</span><span style="color:var(--red);font-weight:600" id="rs-q-saidas">0 · R$ 0</span></div>
+          <div class="balanco-row"><span style="color:var(--text2)">Ticket médio</span><span style="color:var(--text2);font-weight:600" id="rs-ticket">R$ 0</span></div>
+          <div class="balanco-row-total"><span>Saldo do período</span><span id="rs-saldo-periodo" style="color:var(--green)">R$ 0</span></div>
+        </div>
+
+        <div class="metric g metric-full" style="margin-bottom:14px" id="rs-saldo-mes-wrap">
+          <div class="metric-label" id="rs-saldo-label">Saldo real do mês</div>
           <div class="metric-value" id="rs-saldo">R$ 0</div>
         </div>
 
-        <button class="btn-fechar" onclick="fecharMes()">💾 Fechar mês e salvar histórico</button>
+        <button class="btn-fechar" id="rs-btn-fechar" onclick="fecharMes()">💾 Fechar mês e salvar histórico</button>
         <button class="btn-fechar" style="background:var(--surface2);color:var(--text2);margin-top:6px" onclick="compartilharResumo()">📤 Compartilhar resumo</button>
         <button class="btn-sair"   onclick="desconectar()">Sair da conta</button>
       </div>
