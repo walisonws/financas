@@ -118,9 +118,18 @@ body{background:var(--bg);color:var(--text1);font-family:'Inter',sans-serif;min-
         <button class="filtro-btn active" onclick="setFiltro('todos')" data-f="todos">Todos</button>
         <button class="filtro-btn" onclick="setFiltro('ativos')" data-f="ativos">Ativos</button>
         <button class="filtro-btn" onclick="setFiltro('trial')" data-f="trial">Trial</button>
+        <button class="filtro-btn" onclick="setFiltro('vitalicio')" data-f="vitalicio">Vitalícios</button>
         <button class="filtro-btn" onclick="setFiltro('vencendo')" data-f="vencendo">Vencendo</button>
         <button class="filtro-btn" onclick="setFiltro('vencidos')" data-f="vencidos">Vencidos</button>
+        <button class="filtro-btn" onclick="setFiltro('sem-plano')" data-f="sem-plano">Sem plano</button>
       </div>
+    </div>
+
+    <!-- Bulk actions -->
+    <div id="bulk-actions" style="margin-bottom:14px;display:none">
+      <button class="btn-acao green" style="padding:10px 16px;font-size:12px" onclick="liberarTodosVitalicio()">
+        🎁 Marcar TODOS sem plano como Vitalícios (testers)
+      </button>
     </div>
 
     <div class="tabela">
@@ -206,9 +215,11 @@ function statusDoGrupo(g){
   const agora = Date.now();
   const dias = Math.ceil((v - agora) / 86400000);
 
-  if(v <= agora) return { tipo:'vencido', dias:Math.abs(dias), label:`vencido há ${Math.abs(dias)} dia${Math.abs(dias)===1?'':'s'}` };
-  if(p === 'trial') return { tipo:'trial', dias, label:`trial · ${dias}d` };
-  if(dias <= 7) return { tipo:'vencendo', dias, label:`vence em ${dias}d` };
+  if(p === 'vitalicio') return { tipo:'vitalicio', dias:9999, label:'Vitalício 👑' };
+  if(!p && v === 0)     return { tipo:'sem-plano', dias:0, label:'sem plano definido' };
+  if(v <= agora)        return { tipo:'vencido', dias:Math.abs(dias), label:`vencido há ${Math.abs(dias)} dia${Math.abs(dias)===1?'':'s'}` };
+  if(p === 'trial')     return { tipo:'trial', dias, label:`trial · ${dias}d` };
+  if(dias <= 7)         return { tipo:'vencendo', dias, label:`vence em ${dias}d` };
   return { tipo:'ativo', dias, label:`ativo · ${dias}d restantes` };
 }
 
@@ -246,10 +257,12 @@ window.renderLista = function(){
   });
 
   const filtrados = itens.filter(it=>{
-    if(_filtro === 'ativos'   && it.st.tipo !== 'ativo') return false;
-    if(_filtro === 'trial'    && it.st.tipo !== 'trial') return false;
-    if(_filtro === 'vencendo' && it.st.tipo !== 'vencendo') return false;
-    if(_filtro === 'vencidos' && it.st.tipo !== 'vencido') return false;
+    if(_filtro === 'ativos'    && it.st.tipo !== 'ativo') return false;
+    if(_filtro === 'trial'     && it.st.tipo !== 'trial') return false;
+    if(_filtro === 'vitalicio' && it.st.tipo !== 'vitalicio') return false;
+    if(_filtro === 'vencendo'  && it.st.tipo !== 'vencendo') return false;
+    if(_filtro === 'vencidos'  && it.st.tipo !== 'vencido') return false;
+    if(_filtro === 'sem-plano' && it.st.tipo !== 'sem-plano') return false;
     if(busca){
       const txt = (it.nome+' '+it.codigo).toLowerCase();
       if(!txt.includes(busca)) return false;
@@ -263,9 +276,9 @@ window.renderLista = function(){
   }
 
   lista.innerHTML = filtrados.map(it=>{
-    const dot = {ativo:'green', trial:'blue', vencendo:'orange', vencido:'red'}[it.st.tipo];
-    const corStatus = {ativo:'var(--green)', trial:'var(--blue)', vencendo:'var(--orange)', vencido:'var(--red)'}[it.st.tipo];
-    const valido = fmtData(it.g?.info?.validoAte || 0);
+    const dot = {ativo:'green', trial:'blue', vitalicio:'green', vencendo:'orange', vencido:'red', 'sem-plano':'orange'}[it.st.tipo] || 'orange';
+    const corStatus = {ativo:'var(--green)', trial:'var(--blue)', vitalicio:'var(--gold)', vencendo:'var(--orange)', vencido:'var(--red)', 'sem-plano':'var(--orange)'}[it.st.tipo] || 'var(--text2)';
+    const valido = it.st.tipo === 'sem-plano' ? '—' : (it.st.tipo === 'vitalicio' ? '∞' : fmtData(it.g?.info?.validoAte || 0));
     const zap = encodeURIComponent(`Olá ${it.nome}! Sobre seu Grana Pro (${it.codigo})...`);
     return `
       <div class="row">
@@ -280,30 +293,40 @@ window.renderLista = function(){
           <div style="font-size:11px;color:var(--text3);margin-top:2px">vence ${valido}</div>
         </div>
         <div class="acoes">
-          <button class="btn-acao green" onclick="renovar('${it.codigo}', 30)">+30 dias</button>
+          <button class="btn-acao green" onclick="renovar('${it.codigo}', 30)">+30d</button>
           <button class="btn-acao green" onclick="renovar('${it.codigo}', 90)">+90d</button>
+          <button class="btn-acao" style="color:var(--gold);border-color:rgba(212,175,55,0.3)" onclick="darVitalicio('${it.codigo}')">👑 Vitalício</button>
           <a class="btn-acao zap" href="https://wa.me/${WHATSAPP_NUMERO}?text=${zap}" target="_blank">💬</a>
           <button class="btn-acao red" onclick="bloquear('${it.codigo}')">🚫</button>
         </div>
       </div>`;
   }).join('');
+
+  // Mostra/esconde bulk action
+  const semPlano = itens.filter(it=>it.st.tipo === 'sem-plano').length;
+  document.getElementById('bulk-actions').style.display = semPlano > 0 ? 'block' : 'none';
+  if(semPlano > 0){
+    document.querySelector('#bulk-actions button').textContent =
+      `🎁 Marcar ${semPlano} cliente${semPlano===1?'':'s'} sem plano como Vitalício${semPlano===1?'':'s'} (testers)`;
+  }
 }
 
 function renderStats(){
   const itens = Object.values(_grupos);
   const total = itens.length;
-  let ativos=0, vencendo=0, trial=0;
+  let ativos=0, vencendo=0, trial=0, vitalicios=0;
   itens.forEach(g=>{
     const st = statusDoGrupo(g);
     if(st.tipo==='ativo') ativos++;
     if(st.tipo==='vencendo') vencendo++;
     if(st.tipo==='trial') trial++;
+    if(st.tipo==='vitalicio') vitalicios++;
   });
   const pagantes = ativos + vencendo;
   document.getElementById('stat-total').textContent = total;
-  document.getElementById('stat-total-sub').textContent = trial+' em trial';
+  document.getElementById('stat-total-sub').textContent = trial+' trial · '+vitalicios+' vitalícios';
   document.getElementById('stat-ativos').textContent = pagantes;
-  document.getElementById('stat-ativos-sub').textContent = total>0 ? Math.round(pagantes/total*100)+'% da base' : '—';
+  document.getElementById('stat-ativos-sub').textContent = total>0 ? Math.round(pagantes/total*100)+'% pagantes' : '—';
   document.getElementById('stat-vencendo').textContent = vencendo;
   const fat = pagantes * PRECO_MENSAL;
   document.getElementById('stat-fat').textContent = 'R$ '+fat.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -322,9 +345,27 @@ window.renovar = async function(codigo, dias){
 }
 
 window.bloquear = async function(codigo){
-  if(!confirm('Bloquear acesso deste cliente?\n\nEle vai ver a tela de assinatura vencida.')) return;
+  if(!confirm('Bloquear acesso Pro deste cliente?\n\nEle continua usando o app no plano Free (com limite).')) return;
   await update(ref(db, `grupos/${codigo}/info`), { plano:'free', validoAte:0 });
-  toast('Cliente bloqueado','success');
+  toast('Cliente movido para Free','success');
+}
+
+window.darVitalicio = async function(codigo){
+  if(!confirm('Dar acesso VITALÍCIO (Pro grátis pra sempre) a este cliente?')) return;
+  const futuroLonge = Date.now() + 99*365*86400000;
+  await update(ref(db, `grupos/${codigo}/info`), { plano:'vitalicio', validoAte:futuroLonge });
+  toast('Cliente agora é vitalício 👑','success');
+}
+
+window.liberarTodosVitalicio = async function(){
+  const semPlano = Object.entries(_grupos).filter(([_,g])=>!g?.info?.plano && (g?.info?.validoAte||0)===0);
+  if(semPlano.length === 0){ toast('Nenhum cliente sem plano','error'); return; }
+  if(!confirm(`Marcar ${semPlano.length} cliente(s) sem plano como Vitalícios?\n\nEles ficarão com Pro de graça pra sempre (testers).`)) return;
+  const futuroLonge = Date.now() + 99*365*86400000;
+  for(const [codigo,_] of semPlano){
+    await update(ref(db, `grupos/${codigo}/info`), { plano:'vitalicio', validoAte:futuroLonge });
+  }
+  toast(`${semPlano.length} cliente(s) liberado(s) como vitalícios 👑`,'success');
 }
 
 function toast(msg, tipo){

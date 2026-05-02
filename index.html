@@ -56,6 +56,7 @@ const WHATSAPP_MSG = (codigo, nome) =>
 
 function isPro(){
   if(!_info) return false;
+  if(_info.plano === 'vitalicio') return true; // Pro de graça pra sempre (testers)
   if(_info.plano !== 'pro' && _info.plano !== 'trial') return false;
   return (_info.validoAte || 0) > Date.now();
 }
@@ -89,6 +90,7 @@ function atualizarBadgesPlano(){
       </div>`;
       banner.style.display = 'block';
     } else {
+      // Pro pago ou vitalício — não mostra banner
       banner.style.display = 'none';
     }
   } else if(_info.plano === 'pro' || _info.plano === 'trial'){
@@ -297,10 +299,11 @@ function escutarDados(){
   onValue(ref(db,`grupos/${grupoCode}/info`), snap=>{
     const v = snap.val() || {};
     if(!v.plano){
-      // conta antiga sem plano: dá trial de 7 dias
-      const trialFim = Date.now() + TRIAL_DIAS*86400000;
-      _info = { plano:'trial', validoAte:trialFim, modo:v.modo||modoApp };
-      update(ref(db,`grupos/${grupoCode}/info`), {plano:'trial', validoAte:trialFim});
+      // Conta antiga sem plano (criada antes do sistema comercial): vira VITALÍCIO
+      // Tester antigo ganha Pro de graça pra sempre
+      const futuroLonge = Date.now() + 99*365*86400000; // ~99 anos
+      _info = { plano:'vitalicio', validoAte:futuroLonge, modo:v.modo||modoApp };
+      update(ref(db,`grupos/${grupoCode}/info`), {plano:'vitalicio', validoAte:futuroLonge});
     } else {
       _info = v;
     }
