@@ -274,7 +274,11 @@ window.entrarGrupo = async function(){
   iniciarApp();
 }
 
-window.irParaApp = function(){ iniciarApp(); }
+window.irParaApp = function(){
+  // Marca que precisa mostrar boas-vindas após carregar dados
+  localStorage.setItem('grana_show_welcome', '1');
+  iniciarApp();
+}
 
 function salvarLocal(){
   localStorage.setItem('grana_code',   grupoCode);
@@ -289,6 +293,7 @@ function iniciarApp(){
   showScreen('app');
   document.getElementById('header-mes').textContent = getMesAtivo();
   escutarDados();
+  maybeMostrarWelcome();
 }
 
 // ── LISTENERS ──────────────────────────────────────────────────────────────
@@ -1229,6 +1234,19 @@ window.delHistorico = async function(key, mes){
   if(!confirm(`Apagar o histórico de "${mes}"? Essa ação não pode ser desfeita.`)) return;
   await remove(ref(db,`grupos/${grupoCode}/historico/${key}`));
   showToast('Histórico removido');
+}
+
+window.fecharWelcome = function(){
+  document.getElementById('modal-welcome').classList.remove('show');
+  localStorage.removeItem('grana_show_welcome');
+}
+
+function maybeMostrarWelcome(){
+  if(localStorage.getItem('grana_show_welcome') === '1'){
+    setTimeout(()=>{
+      document.getElementById('modal-welcome').classList.add('show');
+    }, 600);
+  }
 }
 
 window.abrirModalPro = function(motivo){
@@ -2364,6 +2382,50 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
       <button class="modal-btn modal-btn-cancel" onclick="fecharModal()">Cancelar</button>
       <button class="modal-btn modal-btn-confirm in" id="modal-btn-confirm" onclick="confirmarModal()">Confirmar</button>
     </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     MODAL BOAS-VINDAS (1ª vez)
+════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-welcome">
+  <div class="modal-card" style="max-width:380px">
+    <div class="modal-handle"></div>
+    <div style="text-align:center;padding:8px 0">
+      <div style="font-size:54px;margin-bottom:4px">🎉</div>
+      <div style="font-size:22px;font-weight:800;color:var(--gold);margin-bottom:6px">Bem-vindo ao Grana Pro!</div>
+      <div style="font-size:13px;color:var(--text2);line-height:1.5;margin-bottom:18px">
+        Seu controle financeiro premium na palma da mão
+      </div>
+    </div>
+
+    <div style="background:linear-gradient(135deg,rgba(34,197,94,0.12),rgba(34,197,94,0.04));border:1px solid rgba(34,197,94,0.3);border-radius:14px;padding:16px;margin-bottom:14px;text-align:center">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--green);margin-bottom:4px;font-weight:700">🎁 Você ganhou</div>
+      <div style="font-size:26px;font-weight:800;color:var(--text1);letter-spacing:-0.5px">7 dias Pro grátis</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:4px">Tudo liberado pra você explorar</div>
+    </div>
+
+    <div style="background:var(--surface2);border-radius:12px;padding:14px;margin-bottom:14px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:10px;font-weight:700">Após o trial você escolhe:</div>
+
+      <div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0">
+        <div style="font-size:20px">📱</div>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:700;color:var(--text1)">Plano Free <span style="font-size:11px;color:var(--text3);font-weight:500">· para sempre</span></div>
+          <div style="font-size:12px;color:var(--text2);line-height:1.4;margin-top:2px">40 lançamentos/mês · saldo · básico</div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-top:1px solid var(--border);margin-top:6px;padding-top:10px">
+        <div style="font-size:20px">👑</div>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:700;color:var(--gold)">Plano Pro <span style="font-size:11px;color:var(--text3);font-weight:500">· R$ 9,90/mês</span></div>
+          <div style="font-size:12px;color:var(--text2);line-height:1.4;margin-top:2px">Tudo ilimitado · contas fixas · histórico · família · alertas</div>
+        </div>
+      </div>
+    </div>
+
+    <button class="modal-btn modal-btn-confirm in" style="width:100%" onclick="fecharWelcome()">Começar a usar →</button>
   </div>
 </div>
 
