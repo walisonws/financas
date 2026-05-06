@@ -973,7 +973,8 @@ window.confirmarFixo = async function(){
 }
 
 // ── ABA RESUMO ───────────────────────────────────────────────────────────────
-let _resumoPeriodo = 'mes'; // 'hoje' | 'semana' | 'mes'
+let _resumoPeriodo = 'mes'; // 'hoje' | 'semana' | 'mes' | 'dia'
+let _resumoDataEspecifica = null; // ts do dia escolhido (modo 'dia')
 
 function filtrarPorPeriodo(arr, periodo){
   if(periodo === 'mes') return filtrarMes(arr);
@@ -983,20 +984,47 @@ function filtrarPorPeriodo(arr, periodo){
     return (arr||[]).filter(x => x.ts && x.ts >= hoje0);
   }
   if(periodo === 'semana'){
-    const sete0 = hoje0 - 6*86400000; // últimos 7 dias incluindo hoje
+    const sete0 = hoje0 - 6*86400000;
     return (arr||[]).filter(x => x.ts && x.ts >= sete0);
+  }
+  if(periodo === 'dia' && _resumoDataEspecifica){
+    const d = new Date(_resumoDataEspecifica);
+    const ini = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const fim = ini + 86400000;
+    return (arr||[]).filter(x => x.ts && x.ts >= ini && x.ts < fim);
   }
   return [];
 }
 
 window.setResumoPeriodo = function(p){
-  // Hoje/Semana são Pro
-  if((p==='hoje' || p==='semana') && !isPro()){ abrirModalPro('feature'); return; }
+  // Hoje/Semana/Dia são Pro
+  if((p==='hoje' || p==='semana' || p==='dia') && !isPro()){ abrirModalPro('feature'); return; }
   _resumoPeriodo = p;
   document.querySelectorAll('.resumo-period-btn').forEach(b=>{
     b.classList.toggle('active', b.dataset.p===p);
   });
   renderResumo();
+}
+
+window.abrirDiaPicker = function(){
+  if(!isPro()){ abrirModalPro('feature'); return; }
+  const inp = document.getElementById('resumo-dia-input');
+  // Preenche com a data atual ou a já selecionada
+  const base = _resumoDataEspecifica ? new Date(_resumoDataEspecifica) : new Date();
+  inp.value = base.getFullYear()+'-'+String(base.getMonth()+1).padStart(2,'0')+'-'+String(base.getDate()).padStart(2,'0');
+  inp.onchange = ()=>{
+    if(inp.value){
+      const [y,m,d] = inp.value.split('-').map(Number);
+      _resumoDataEspecifica = new Date(y, m-1, d, 12, 0, 0).getTime();
+      _resumoPeriodo = 'dia';
+      document.querySelectorAll('.resumo-period-btn').forEach(b=>{
+        b.classList.toggle('active', b.dataset.p==='dia');
+      });
+      renderResumo();
+    }
+  };
+  // Trigger click pra abrir o seletor nativo
+  if(inp.showPicker) inp.showPicker(); else inp.click();
 }
 
 function renderResumo(){
@@ -1022,10 +1050,12 @@ function renderResumoSolo(){
   const tDiario  = gastos.reduce((a,b)=>a+(b.valor||0),0);
 
   // Atualizar título/label conforme período
+  const diaSelLabel = _resumoDataEspecifica ? new Date(_resumoDataEspecifica).toLocaleDateString('pt-BR',{weekday:'long', day:'2-digit', month:'2-digit', year:'numeric'}) : '';
   const labels = {
     hoje:   { titulo:'Balanço de hoje',   sub:'Movimento do dia',          rendaLabel:'Entradas de hoje',   saldoLabel:'Saldo do dia' },
     semana: { titulo:'Balanço da semana', sub:'Últimos 7 dias',            rendaLabel:'Entradas na semana', saldoLabel:'Saldo da semana' },
-    mes:    { titulo:'Balanço do mês',    sub:'Gastos diários separados dos fixos', rendaLabel:'Renda total', saldoLabel:'Saldo real do mês' }
+    mes:    { titulo:'Balanço do mês',    sub:'Gastos diários separados dos fixos', rendaLabel:'Renda total', saldoLabel:'Saldo real do mês' },
+    dia:    { titulo:'Balanço do dia',    sub:diaSelLabel,                  rendaLabel:'Entradas do dia',    saldoLabel:'Saldo do dia' }
   };
   document.getElementById('rs-titulo').textContent      = labels[p].titulo;
   document.getElementById('rs-subtitulo').textContent   = labels[p].sub;
@@ -1107,10 +1137,12 @@ function renderResumoGrupo(){
   // Atualiza título do balanço do grupo conforme período
   const tituloGrupo = document.querySelector('#resumo-grupo .sec-titulo');
   const subGrupo    = document.querySelector('#resumo-grupo .sec-subtitulo');
+  const diaSelGrupo = _resumoDataEspecifica ? new Date(_resumoDataEspecifica).toLocaleDateString('pt-BR',{weekday:'long', day:'2-digit', month:'2-digit'}) : '';
   const labelsG = {
     hoje:   { titulo:'Movimento de hoje',  sub:'Soma de todos do grupo' },
     semana: { titulo:'Movimento da semana', sub:'Últimos 7 dias' },
-    mes:    { titulo:'Balanço do grupo',    sub:'Inclui contas fixas pagas' }
+    mes:    { titulo:'Balanço do grupo',    sub:'Inclui contas fixas pagas' },
+    dia:    { titulo:'Movimento do dia',    sub:diaSelGrupo }
   };
   if(tituloGrupo) tituloGrupo.textContent = labelsG[p].titulo;
   if(subGrupo) subGrupo.textContent       = labelsG[p].sub;
@@ -1345,7 +1377,8 @@ window.fecharModalPro = function(){
 window.compartilharResumo = async function(){
   if(!isPro()){ abrirModalPro('feature'); return; }
   const p = _resumoPeriodo;
-  const periodoLabel = {hoje:'Hoje', semana:'Últimos 7 dias', mes:getMesAtivo()}[p];
+  const diaLabel = _resumoDataEspecifica ? new Date(_resumoDataEspecifica).toLocaleDateString('pt-BR') : '';
+  const periodoLabel = {hoje:'Hoje', semana:'Últimos 7 dias', mes:getMesAtivo(), dia:'Dia '+diaLabel}[p];
   const ganhos = filtrarPorPeriodo(_dados.ganhos, p).filter(g=>g.pid===meuPerfil);
   const gastos = filtrarPorPeriodo(_dados.gastos, p).filter(g=>g.pid===meuPerfil);
   const tG = ganhos.reduce((a,b)=>a+(b.valor||0),0);
@@ -2190,7 +2223,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         <button class="resumo-period-btn" data-p="hoje"   onclick="setResumoPeriodo('hoje')">Hoje</button>
         <button class="resumo-period-btn" data-p="semana" onclick="setResumoPeriodo('semana')">Semana</button>
         <button class="resumo-period-btn active" data-p="mes" onclick="setResumoPeriodo('mes')">Mês</button>
+        <button class="resumo-period-btn" data-p="dia"    onclick="abrirDiaPicker()">📅</button>
       </div>
+      <input type="date" id="resumo-dia-input" style="display:none"/>
 
       <!-- Solo -->
       <div id="resumo-solo" style="display:none">
