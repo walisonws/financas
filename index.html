@@ -369,7 +369,12 @@ function renderNavMembros(){
     return;
   }
   nav.style.display = 'flex';
-  nav.innerHTML = membros.map(m=>{
+  const tabTodos = `
+    <div class="membro-tab ${membroAtivo==='todos'?'active':''}" onclick="setMembroAtivo('todos')">
+      <div class="membro-avatar" style="background:rgba(212,175,55,0.2);color:var(--gold)">👥</div>
+      <span>Todos</span>
+    </div>`;
+  nav.innerHTML = tabTodos + membros.map(m=>{
     const podeRemover = m.id !== meuPerfil;
     return `
     <div class="membro-tab ${m.id===membroAtivo?'active':''}" onclick="setMembroAtivo('${m.id}')">
@@ -475,13 +480,15 @@ function mensagemMotivacional(saldo, totalGanho){
 function renderMeu(){
   atualizarBadgesPlano();
   const target = membroAtivo || meuPerfil;
-  const membro = membros.find(m=>m.id===target);
+  const isTodos = target === 'todos';
+  const membro = isTodos ? {id:'todos', nome:'Todos', cor:'#d4af37'} : membros.find(m=>m.id===target);
   if(!membro) return;
-  const isEu = (target === meuPerfil);
+  const isEu = !isTodos && (target === meuPerfil);
 
-  const ganhos     = filtrarMes(_dados.ganhos).filter(g=>g.pid===membro.id);
-  const gastos     = filtrarMes(_dados.gastos).filter(g=>g.pid===membro.id);
-  const fixosPagos = filtrarMes(_dados.fixos).filter(f=>f.pid===membro.id && f.pago===true);
+  const filtroMembro = isTodos ? (()=>true) : (x=>x.pid===membro.id);
+  const ganhos     = filtrarMes(_dados.ganhos).filter(filtroMembro);
+  const gastos     = filtrarMes(_dados.gastos).filter(filtroMembro);
+  const fixosPagos = filtrarMes(_dados.fixos).filter(f=>filtroMembro(f) && f.pago===true);
 
   const totalGanho       = ganhos.reduce((a,b)=>a+(b.valor||0),0);
   const totalGastoDiario = gastos.reduce((a,b)=>a+(b.valor||0),0);
@@ -498,9 +505,9 @@ function renderMeu(){
   saldoEl.classList.toggle('negativo', saldo < 0);
 
   const labelEl = document.getElementById('saldo-label');
-  if(labelEl) labelEl.textContent = isEu
-    ? 'Seu saldo do mês'
-    : 'Saldo de ' + membro.nome;
+  if(labelEl) labelEl.textContent = isTodos
+    ? 'Saldo de todos do mês'
+    : (isEu ? 'Seu saldo do mês' : 'Saldo de ' + membro.nome);
 
   const msgEl = document.getElementById('msg-status');
   const msg = mensagemMotivacional(saldo, totalGanho);
@@ -512,8 +519,8 @@ function renderMeu(){
   document.getElementById('meu-ganho').textContent      = fmt(totalGanho);
   document.getElementById('meu-gasto-total').textContent= fmt(totalGastoReal);
 
-  // BOTÕES (só pra quem é dono do perfil)
-  document.getElementById('botoes-acao').style.display = isEu ? 'grid' : 'none';
+  // BOTÕES — mostrar se for o próprio perfil OU visão Todos (lança no próprio)
+  document.getElementById('botoes-acao').style.display = (isEu || isTodos) ? 'grid' : 'none';
 
   // ONDE MAIS GASTA — top 3
   const catCard = document.getElementById('card-cats');
@@ -576,26 +583,30 @@ function renderMeu(){
   }
 
   // ÚLTIMAS MOVIMENTAÇÕES — combina ganhos+gastos por ts desc
+  // Em modo Todos mostra mais (15) e identifica o membro
   const txCard = document.getElementById('card-tx');
   const tx = [
     ...ganhos.map(g=>({...g, _tipo:'in', _label:g.desc||'Ganho'})),
     ...gastos.map(g=>({...g, _tipo:'out', _label:g.nome||'Gasto'}))
-  ].sort((a,b)=>(b.ts||0)-(a.ts||0)).slice(0,6);
+  ].sort((a,b)=>(b.ts||0)-(a.ts||0)).slice(0, isTodos ? 30 : 6);
 
   if(tx.length > 0){
     document.getElementById('tx-lista').innerHTML = tx.map(t=>{
       const sinal = t._tipo==='in' ? '+' : '−';
       const arrow = t._tipo==='in' ? '↑' : '↓';
-      const onClickEdit = isEu ? `onclick="abrirModal('${t._tipo}','${t._key}')" style="cursor:pointer"` : '';
+      const dono = isTodos ? membros.find(mm=>mm.id===t.pid) : null;
+      const donoTag = dono ? `<span style="background:${dono.cor}22;color:${dono.cor};padding:1px 7px;border-radius:6px;font-size:10px;font-weight:600;margin-right:6px">${dono.nome}</span>` : '';
+      const isOwnerOfTx = t.pid === meuPerfil;
+      const onClickEdit = isOwnerOfTx ? `onclick="abrirModal('${t._tipo}','${t._key}')" style="cursor:pointer"` : '';
       return `
         <div class="tx-item">
           <div class="tx-icon-circle ${t._tipo}" ${onClickEdit}>${arrow}</div>
           <div class="tx-info" ${onClickEdit}>
-            <div class="tx-nome">${t._label}</div>
-            <div class="tx-data">${formatarDataTx(t)}${isEu?' · <span style="color:var(--gold);opacity:0.7">tocar p/ editar</span>':''}</div>
+            <div class="tx-nome">${donoTag}${t._label}</div>
+            <div class="tx-data">${formatarDataTx(t)}${isOwnerOfTx?' · <span style="color:var(--gold);opacity:0.7">tocar p/ editar</span>':''}</div>
           </div>
           <div class="tx-valor ${t._tipo}" ${onClickEdit}>${sinal}${fmt(t.valor)}</div>
-          ${isEu?`<button class="tx-del" onclick="event.stopPropagation();${t._tipo==='in'?'delGanho':'delGasto'}('${t._key}')">×</button>`:''}
+          ${isOwnerOfTx?`<button class="tx-del" onclick="event.stopPropagation();${t._tipo==='in'?'delGanho':'delGasto'}('${t._key}')">×</button>`:''}
         </div>`;
     }).join('');
     txCard.style.display = 'block';
@@ -664,6 +675,45 @@ function numpadFixoSet(valor){
 
 // ── MODAL RECEBI/GASTEI (com modo edição) ──────────────────────────────────
 let _modalTipo = 'in';
+let _modalDataTs = null; // null = hoje
+
+window.setModalData = function(qual){
+  document.querySelectorAll('.data-btn').forEach(b=>b.classList.toggle('active', b.dataset.d===qual));
+  const inp = document.getElementById('modal-data-input');
+  if(qual === 'hoje'){
+    _modalDataTs = null;
+    inp.style.display = 'none';
+  } else if(qual === 'ontem'){
+    const d = new Date(); d.setDate(d.getDate()-1); d.setHours(12,0,0,0);
+    _modalDataTs = d.getTime();
+    inp.style.display = 'none';
+  } else {
+    inp.style.display = 'block';
+    inp.onchange = ()=>{
+      if(inp.value){
+        const [y,m,d] = inp.value.split('-').map(Number);
+        const dt = new Date(y, m-1, d, 12, 0, 0);
+        _modalDataTs = dt.getTime();
+      }
+    };
+    if(!inp.value){
+      const hoje = new Date();
+      inp.value = hoje.getFullYear()+'-'+String(hoje.getMonth()+1).padStart(2,'0')+'-'+String(hoje.getDate()).padStart(2,'0');
+    }
+    inp.focus();
+  }
+}
+
+function getMesDeTs(ts){
+  const d = new Date(ts);
+  return MESES[d.getMonth()] + ' ' + d.getFullYear();
+}
+function getDataDeTs(ts){
+  const d = new Date(ts);
+  return d.getDate()+'/'+(d.getMonth()+1);
+}
+
+
 let _modalCat  = 'Alimentação';
 let _modalEditKey = null;
 
@@ -703,6 +753,7 @@ window.abrirModal = function(tipo, editKey){
     btnConf.textContent= tipo==='in' ? 'Confirmar entrada' : 'Confirmar gasto';
     numpadClear();
     descEl.value = '';
+    setModalData('hoje');
   }
 
   titulo.className   = 'modal-titulo ' + tipo;
@@ -814,18 +865,20 @@ window.confirmarModal = async function(){
     await update(ref(db,`grupos/${grupoCode}/${path}/${_modalEditKey}`), updates);
     showToast('Atualizado! ✓');
   } else if(_modalTipo === 'in'){
+    const ts = _modalDataTs || Date.now();
     await push(ref(db,`grupos/${grupoCode}/ganhos`),{
       pid:meuPerfil, desc:desc||'Ganho do dia', valor:val,
-      data:today(), mes:getMesAtivo(), ts:Date.now()
+      data:getDataDeTs(ts), mes:getMesDeTs(ts), ts:ts
     });
-    showToast('Entrada lançada! 💰');
+    showToast(_modalDataTs ? 'Entrada lançada (data passada)! 💰' : 'Entrada lançada! 💰');
   } else {
     if(!desc){ showToast('Descreva o gasto','error'); return; }
+    const ts = _modalDataTs || Date.now();
     await push(ref(db,`grupos/${grupoCode}/gastos`),{
       pid:meuPerfil, nome:desc, valor:val, cat:_modalCat,
-      data:today(), mes:getMesAtivo(), ts:Date.now()
+      data:getDataDeTs(ts), mes:getMesDeTs(ts), ts:ts
     });
-    showToast('Gasto registrado!');
+    showToast(_modalDataTs ? 'Gasto registrado (data passada)!' : 'Gasto registrado!');
   }
   fecharModal();
 }
@@ -948,15 +1001,14 @@ window.setResumoPeriodo = function(p){
 
 function renderResumo(){
   const periodSwitch = document.querySelector('.resumo-period');
+  if(periodSwitch) periodSwitch.style.display = 'flex';
   if(modoApp==='solo'){
     document.getElementById('resumo-grupo').style.display = 'none';
     document.getElementById('resumo-solo').style.display  = 'block';
-    if(periodSwitch) periodSwitch.style.display = 'flex';
     renderResumoSolo();
   } else {
     document.getElementById('resumo-grupo').style.display = 'block';
     document.getElementById('resumo-solo').style.display  = 'none';
-    if(periodSwitch) periodSwitch.style.display = 'none';
     renderResumoGrupo();
   }
 }
@@ -1024,13 +1076,15 @@ function renderResumoSolo(){
 }
 
 function renderResumoGrupo(){
+  const p = _resumoPeriodo;
+  const incluiFixos = (p === 'mes');
   const lista = document.getElementById('resumo-membros-lista');
   let totalGrupoGanho=0, totalGrupoDiario=0, totalGrupoFixo=0;
 
   lista.innerHTML = membros.map(m=>{
-    const ganhos     = filtrarMes(_dados.ganhos).filter(g=>g.pid===m.id);
-    const gastos     = filtrarMes(_dados.gastos).filter(g=>g.pid===m.id);
-    const fixosPagos = filtrarMes(_dados.fixos).filter(f=>f.pid===m.id && f.pago===true);
+    const ganhos     = filtrarPorPeriodo(_dados.ganhos, p).filter(g=>g.pid===m.id);
+    const gastos     = filtrarPorPeriodo(_dados.gastos, p).filter(g=>g.pid===m.id);
+    const fixosPagos = incluiFixos ? filtrarMes(_dados.fixos).filter(f=>f.pid===m.id && f.pago===true) : [];
     const tG      = ganhos.reduce((a,b)=>a+(b.valor||0),0);
     const tDiario = gastos.reduce((a,b)=>a+(b.valor||0),0);
     const tFixo   = fixosPagos.reduce((a,b)=>a+(b.valor||0),0);
@@ -1044,11 +1098,22 @@ function renderResumoGrupo(){
         <div class="rm-nome">${m.nome}</div>
         <div class="rm-saldo" style="color:${saldo>=0?'var(--green)':'var(--red)'}">${fmtSigned(saldo)}</div>
       </div>
-      <div class="rm-row"><span>Renda</span><span style="color:var(--gold)">${fmt(tG)}</span></div>
-      <div class="rm-row"><span>Gastos diários</span><span style="color:var(--red)">${fmt(tDiario)}</span></div>
-      <div class="rm-row"><span>Fixos pagos</span><span style="color:var(--orange)">${fmt(tFixo)}</span></div>
+      <div class="rm-row"><span>Entradas</span><span style="color:var(--gold)">${fmt(tG)} <small style="color:var(--text3)">(${ganhos.length})</small></span></div>
+      <div class="rm-row"><span>Gastos diários</span><span style="color:var(--red)">${fmt(tDiario)} <small style="color:var(--text3)">(${gastos.length})</small></span></div>
+      ${incluiFixos ? `<div class="rm-row"><span>Fixos pagos</span><span style="color:var(--orange)">${fmt(tFixo)}</span></div>` : ''}
     </div>`;
   }).join('');
+
+  // Atualiza título do balanço do grupo conforme período
+  const tituloGrupo = document.querySelector('#resumo-grupo .sec-titulo');
+  const subGrupo    = document.querySelector('#resumo-grupo .sec-subtitulo');
+  const labelsG = {
+    hoje:   { titulo:'Movimento de hoje',  sub:'Soma de todos do grupo' },
+    semana: { titulo:'Movimento da semana', sub:'Últimos 7 dias' },
+    mes:    { titulo:'Balanço do grupo',    sub:'Inclui contas fixas pagas' }
+  };
+  if(tituloGrupo) tituloGrupo.textContent = labelsG[p].titulo;
+  if(subGrupo) subGrupo.textContent       = labelsG[p].sub;
 
   const saldoGrupo = totalGrupoGanho - totalGrupoDiario - totalGrupoFixo;
   document.getElementById('rg-ganho').textContent      = fmt(totalGrupoGanho);
@@ -1058,17 +1123,21 @@ function renderResumoGrupo(){
   document.getElementById('rg-saldo').textContent      = fmtSigned(saldoGrupo);
   document.getElementById('rg-saldo').style.color      = saldoGrupo>=0?'var(--green)':'var(--red)';
 
+  // Esconde linha de fixos no Hoje/Semana
+  const rowsFixo = document.querySelectorAll('#resumo-grupo .row-fixos');
+  rowsFixo.forEach(r=>r.style.display = incluiFixos ? '' : 'none');
+
   if(membros.length > 1){
     mkBar('chart-resumo', membros.map(m=>m.nome),[
-      {label:'Renda',
-       data:membros.map(m=>filtrarMes(_dados.ganhos).filter(g=>g.pid===m.id).reduce((a,b)=>a+(b.valor||0),0)),
+      {label:'Entradas',
+       data:membros.map(m=>filtrarPorPeriodo(_dados.ganhos, p).filter(g=>g.pid===m.id).reduce((a,b)=>a+(b.valor||0),0)),
        backgroundColor:membros.map(m=>m.cor+'99'), borderRadius:8},
       {label:'Gastos diários',
-       data:membros.map(m=>filtrarMes(_dados.gastos).filter(x=>x.pid===m.id).reduce((a,b)=>a+(b.valor||0),0)),
+       data:membros.map(m=>filtrarPorPeriodo(_dados.gastos, p).filter(x=>x.pid===m.id).reduce((a,b)=>a+(b.valor||0),0)),
        backgroundColor:'rgba(239,68,68,0.6)', borderRadius:8},
-      {label:'Fixos pagos',
+      ...(incluiFixos ? [{label:'Fixos pagos',
        data:membros.map(m=>filtrarMes(_dados.fixos).filter(x=>x.pid===m.id&&x.pago).reduce((a,b)=>a+(b.valor||0),0)),
-       backgroundColor:'rgba(249,115,22,0.6)', borderRadius:8}
+       backgroundColor:'rgba(249,115,22,0.6)', borderRadius:8}] : [])
     ]);
     document.getElementById('card-chart-resumo').style.display = 'block';
   }
@@ -1901,6 +1970,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .quick-label{font-size:11px;color:var(--text3);white-space:nowrap;}
 .quick-val-btn{background:var(--surface2);border:1px solid var(--border);border-radius:20px;color:var(--gold);font-size:13px;font-weight:600;font-family:'Inter',sans-serif;padding:6px 14px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
 .quick-val-btn:active{background:var(--surface3);}
+.modal-data-wrap{margin:8px 0 4px;}
+.modal-data-btns{display:flex;gap:6px;margin-top:6px;}
+.data-btn{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text2);padding:9px 0;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.data-btn.active{background:var(--surface3);color:var(--text1);border-color:var(--gold);}
 .modal-cats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px;}
 .cat-pick{
   display:flex;flex-direction:column;align-items:center;gap:3px;
@@ -2193,11 +2266,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
             <div class="metric-label">Gastos diários</div>
             <div class="metric-value" id="rg-gasto-diario">R$ 0</div>
           </div>
-          <div class="metric or">
+          <div class="metric or row-fixos">
             <div class="metric-label">Fixos pagos</div>
             <div class="metric-value" id="rg-fixo">R$ 0</div>
           </div>
-          <div class="metric r metric-full" style="margin-top:-2px">
+          <div class="metric r metric-full row-fixos" style="margin-top:-2px">
             <div class="metric-label">Total gasto</div>
             <div class="metric-value" id="rg-gasto-total">R$ 0</div>
           </div>
@@ -2369,6 +2442,16 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
     </div>
 
     <div id="modal-quick-vals" style="display:none"></div>
+
+    <div class="modal-data-wrap">
+      <label class="modal-label" style="margin:0">Data</label>
+      <div class="modal-data-btns">
+        <button type="button" class="data-btn active" data-d="hoje" onclick="setModalData('hoje')">Hoje</button>
+        <button type="button" class="data-btn" data-d="ontem" onclick="setModalData('ontem')">Ontem</button>
+        <button type="button" class="data-btn" data-d="custom" onclick="setModalData('custom')">📅 Outra</button>
+      </div>
+      <input type="date" id="modal-data-input" class="modal-input" style="display:none;margin-top:6px"/>
+    </div>
 
     <label class="modal-label">Descrição</label>
     <input type="text" class="modal-input" id="modal-desc" placeholder="Ex: corte cliente, almoço..."/>
