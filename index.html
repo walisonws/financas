@@ -615,6 +615,140 @@ function renderMeu(){
   }
 }
 
+window.toggleTodasMovimentacoes = function(){
+  const cardUltimas = document.getElementById('card-tx');
+  const cardTodas = document.getElementById('card-todas-tx');
+
+  const isVisibleTodas = cardTodas.style.display !== 'none';
+  cardUltimas.style.display = isVisibleTodas ? 'block' : 'none';
+  cardTodas.style.display = isVisibleTodas ? 'none' : 'block';
+
+  if(!isVisibleTodas) renderTodasMovimentacoes();
+}
+
+function renderTodasMovimentacoes(){
+  const target = membroAtivo || meuPerfil;
+  const isTodos = target === 'todos';
+  const membro = isTodos ? {id:'todos', nome:'Todos', cor:'#d4af37'} : membros.find(m=>m.id===target);
+  if(!membro) return;
+
+  const filtroMembro = isTodos ? (()=>true) : (x=>x.pid===membro.id);
+  const ganhos = filtrarMes(_dados.ganhos).filter(filtroMembro);
+  const gastos = filtrarMes(_dados.gastos).filter(filtroMembro);
+
+  const tx = [
+    ...ganhos.map(g=>({...g, _tipo:'in', _label:g.desc||'Ganho'})),
+    ...gastos.map(g=>({...g, _tipo:'out', _label:g.nome||'Gasto'}))
+  ].sort((a,b)=>(b.ts||0)-(a.ts||0));
+
+  if(tx.length === 0){
+    document.getElementById('todas-tx-lista').innerHTML = '<div class="empty" style="padding:16px;text-align:center;color:var(--text3)">Nenhuma movimentação neste mês</div>';
+    return;
+  }
+
+  document.getElementById('todas-tx-lista').innerHTML = tx.map(t=>{
+    const sinal = t._tipo==='in' ? '+' : '−';
+    const arrow = t._tipo==='in' ? '↑' : '↓';
+    const dono = isTodos ? membros.find(mm=>mm.id===t.pid) : null;
+    const donoTag = dono ? `<span style="background:${dono.cor}22;color:${dono.cor};padding:1px 7px;border-radius:6px;font-size:10px;font-weight:600;margin-right:6px">${dono.nome}</span>` : '';
+    const isOwnerOfTx = t.pid === meuPerfil;
+    const onClickEdit = isOwnerOfTx ? `onclick="abrirModal('${t._tipo}','${t._key}')" style="cursor:pointer"` : '';
+    return `
+      <div class="tx-item">
+        <div class="tx-icon-circle ${t._tipo}" ${onClickEdit}>${arrow}</div>
+        <div class="tx-info" ${onClickEdit}>
+          <div class="tx-nome">${donoTag}${t._label}</div>
+          <div class="tx-data">${formatarDataTx(t)}${isOwnerOfTx?' · <span style="color:var(--gold);opacity:0.7">tocar p/ editar</span>':''}</div>
+        </div>
+        <div class="tx-valor ${t._tipo}" ${onClickEdit}>${sinal}${fmt(t.valor)}</div>
+        ${isOwnerOfTx?`<button class="tx-del" onclick="event.stopPropagation();${t._tipo==='in'?'delGanho':'delGasto'}('${t._key}')">×</button>`:''}
+      </div>`;
+  }).join('');
+}
+
+window.toggleEntrouSaiu = function(tipo){
+  const cardEntrou = document.getElementById('card-entrou-expandido');
+  const cardSaiu = document.getElementById('card-saiu-expandido');
+
+  if(tipo === 'entrou'){
+    const isVisible = cardEntrou.style.display !== 'none';
+    cardEntrou.style.display = isVisible ? 'none' : 'block';
+    cardSaiu.style.display = 'none';
+    if(!isVisible) renderEntrouSaiu('entrou');
+  } else {
+    const isVisible = cardSaiu.style.display !== 'none';
+    cardSaiu.style.display = isVisible ? 'none' : 'block';
+    cardEntrou.style.display = 'none';
+    if(!isVisible) renderEntrouSaiu('saiu');
+  }
+}
+
+function renderEntrouSaiu(tipo){
+  const target = membroAtivo || meuPerfil;
+  const isTodos = target === 'todos';
+  const filtroMembro = isTodos ? (()=>true) : (x=>x.pid===target);
+
+  let dados, listId, titulo;
+  if(tipo === 'entrou'){
+    dados = filtrarMes(_dados.ganhos).filter(filtroMembro);
+    listId = 'entrou-lista';
+    titulo = 'Entradas do mês';
+  } else {
+    dados = filtrarMes(_dados.gastos).filter(filtroMembro);
+    listId = 'saiu-lista';
+    titulo = 'Saídas do mês';
+  }
+
+  // Agrupar por dia
+  const porDia = {};
+  dados.forEach(d=>{
+    const diaStr = d.data || '';
+    if(!porDia[diaStr]) porDia[diaStr] = [];
+    porDia[diaStr].push(d);
+  });
+
+  // Ordenar dias em ordem decrescente
+  const diasOrdenados = Object.keys(porDia).sort((a,b)=>{
+    const [diaA, mesA] = a.split('/').map(Number);
+    const [diaB, mesB] = b.split('/').map(Number);
+    return (mesB-mesA) || (diaB-diaA);
+  });
+
+  if(diasOrdenados.length === 0){
+    document.getElementById(listId).innerHTML = '<div class="empty" style="padding:16px;text-align:center;color:var(--text3)">Nenhuma movimentação neste mês</div>';
+    return;
+  }
+
+  document.getElementById(listId).innerHTML = diasOrdenados.map(dia=>{
+    const movimentacoes = porDia[dia];
+    const total = movimentacoes.reduce((a,b)=>a+(b.valor||0),0);
+    const isIn = tipo === 'entrou';
+
+    return `
+      <div class="dia-group">
+        <div class="dia-header">
+          <span style="font-weight:600">${dia}</span>
+          <span style="color:${isIn?'var(--green)':'var(--red)'}; font-weight:600">${isIn?'+':'−'}${fmt(total)}</span>
+        </div>
+        ${movimentacoes.map(m=>{
+          const label = isIn ? (m.desc||'Ganho') : (m.nome||'Gasto');
+          const onClickEdit = `onclick="abrirModal('${isIn?'in':'out'}','${m._key||m.key}')" style="cursor:pointer"`;
+          const isOwnerOfTx = m.pid === meuPerfil;
+          return `
+            <div class="tx-item" ${onClickEdit}>
+              <div class="tx-icon-circle ${isIn?'in':'out'}">${isIn?'↑':'↓'}</div>
+              <div class="tx-info">
+                <div class="tx-nome">${label}</div>
+                <div class="tx-data">${m.desc || m.nome || ''}</div>
+              </div>
+              <div class="tx-valor ${isIn?'in':'out'}">${isIn?'+':'−'}${fmt(m.valor)}</div>
+              ${isOwnerOfTx?`<button class="tx-del" onclick="event.stopPropagation();${isIn?'delGanho':'delGasto'}('${m._key||m.key}')">×</button>`:''}
+            </div>`;
+        }).join('')}
+      </div>`;
+  }).join('');
+}
+
 // ── NUMPAD MAQUININHA ──────────────────────────────────────────────────────
 let _numpadCents = 0;
 
@@ -1000,10 +1134,23 @@ window.setResumoPeriodo = function(p){
   // Hoje/Semana/Dia são Pro
   if((p==='hoje' || p==='semana' || p==='dia') && !isPro()){ abrirModalPro('feature'); return; }
   _resumoPeriodo = p;
-  document.querySelectorAll('.resumo-period-btn').forEach(b=>{
+  document.querySelectorAll('.resumo-period-btn[data-p]').forEach(b=>{
     b.classList.toggle('active', b.dataset.p===p);
   });
   renderResumo();
+}
+
+window.setResumoMembro = function(tipo){
+  if(tipo === 'eu'){
+    membroAtivo = meuPerfil;
+  } else {
+    membroAtivo = 'todos';
+  }
+  document.querySelectorAll('.resumo-period-btn[data-membro]').forEach(b=>{
+    b.classList.toggle('active', b.dataset.membro===tipo);
+  });
+  renderResumo();
+  renderMeu();
 }
 
 window.abrirDiaPicker = function(){
@@ -1030,6 +1177,13 @@ window.abrirDiaPicker = function(){
 function renderResumo(){
   const periodSwitch = document.querySelector('.resumo-period');
   if(periodSwitch) periodSwitch.style.display = 'flex';
+
+  // Mostrar seletor de membro apenas em modo grupo
+  const membroSelector = document.getElementById('resumo-membros-selector');
+  if(membroSelector){
+    membroSelector.style.display = modoApp==='solo' ? 'none' : 'flex';
+  }
+
   if(modoApp==='solo'){
     document.getElementById('resumo-grupo').style.display = 'none';
     document.getElementById('resumo-solo').style.display  = 'block';
@@ -1235,6 +1389,10 @@ function renderFixos(){
 }
 
 // ── HISTÓRICO ──────────────────────────────────────────────────────────────
+let _historicoTabAtiva = 'evolucao';
+let _historicoPeriodo = 'mes';
+let _historicoTipo = 'todas';
+
 function renderHistorico(){
   const hist  = _dados.historico||[];
   const listEl= document.getElementById('hist-lista');
@@ -1261,6 +1419,102 @@ function renderHistorico(){
         <span style="color:${h.saldo>=0?'var(--green)':'var(--red)'}; font-weight:700; font-size:17px">${fmtSigned(h.saldo)}</span>
       </div>
     </div>`).join('');
+}
+
+window.setHistoricoTab = function(tab){
+  _historicoTabAtiva = tab;
+  const evolucao = document.getElementById('hist-evolucao');
+  const movimentacoes = document.getElementById('hist-movimentacoes');
+
+  document.querySelectorAll('#sec-historico .resumo-period:first-of-type .resumo-period-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.tab===tab);
+  });
+
+  if(tab === 'evolucao'){
+    evolucao.style.display = 'block';
+    movimentacoes.style.display = 'none';
+  } else {
+    evolucao.style.display = 'none';
+    movimentacoes.style.display = 'block';
+    renderHistoricoMovimentacoes();
+  }
+}
+
+window.setHistoricoPeriodo = function(periodo){
+  _historicoPeriodo = periodo;
+  document.querySelectorAll('[data-p-hist]').forEach(b=>{
+    b.classList.toggle('active', b.dataset.pHist===periodo);
+  });
+  renderHistoricoMovimentacoes();
+}
+
+window.setHistoricoTipo = function(tipo){
+  _historicoTipo = tipo;
+  document.querySelectorAll('[data-tipo-hist]').forEach(b=>{
+    b.classList.toggle('active', b.dataset.tipoHist===tipo);
+  });
+  renderHistoricoMovimentacoes();
+}
+
+function renderHistoricoMovimentacoes(){
+  const target = membroAtivo || meuPerfil;
+  const isTodos = target === 'todos';
+  const filtroMembro = isTodos ? (()=>true) : (x=>x.pid===target);
+
+  let dados = [];
+  if(_historicoTipo === 'recebidas' || _historicoTipo === 'todas'){
+    dados.push(...(_dados.ganhos||[]).filter(filtroMembro));
+  }
+  if(_historicoTipo === 'gastas' || _historicoTipo === 'todas'){
+    dados.push(...(_dados.gastos||[]).filter(filtroMembro));
+  }
+
+  // Filtrar por período
+  const agora = new Date();
+  dados = dados.filter(d=>{
+    const ts = d.ts || 0;
+    const data = new Date(ts);
+
+    if(_historicoPeriodo === 'dia'){
+      return data.toDateString() === agora.toDateString();
+    } else if(_historicoPeriodo === 'semana'){
+      const semanaAgo = new Date(agora);
+      semanaAgo.setDate(agora.getDate() - 7);
+      return data >= semanaAgo && data <= agora;
+    } else { // mês
+      return data.getMonth() === agora.getMonth() && data.getFullYear() === agora.getFullYear();
+    }
+  });
+
+  // Ordenar por data decrescente
+  dados.sort((a,b)=>(b.ts||0)-(a.ts||0));
+
+  const listEl = document.getElementById('hist-movimentacoes-lista');
+  if(dados.length === 0){
+    listEl.innerHTML = '<div class="empty" style="padding:16px;text-align:center;color:var(--text3)">Nenhuma movimentação neste período</div>';
+    return;
+  }
+
+  listEl.innerHTML = dados.map(d=>{
+    const tipo = d.valor ? (d.desc ? 'in' : 'out') : 'out';
+    const isIn = d.desc ? true : false;
+    const label = isIn ? (d.desc||'Ganho') : (d.nome||'Gasto');
+    const sinal = isIn ? '+' : '−';
+    const arrow = isIn ? '↑' : '↓';
+    const dono = isTodos && membros ? membros.find(m=>m.id===d.pid) : null;
+    const donoTag = dono ? `<span style="background:${dono.cor}22;color:${dono.cor};padding:1px 7px;border-radius:6px;font-size:10px;font-weight:600;margin-right:6px">${dono.nome}</span>` : '';
+    const isOwnerOfTx = d.pid === meuPerfil;
+
+    return `
+      <div class="tx-item">
+        <div class="tx-icon-circle ${isIn?'in':'out'}">${arrow}</div>
+        <div class="tx-info">
+          <div class="tx-nome">${donoTag}${label}</div>
+          <div class="tx-data">${formatarDataTx(d)}</div>
+        </div>
+        <div class="tx-valor ${isIn?'in':'out'}">${sinal}${fmt(d.valor)}</div>
+      </div>`;
+  }).join('');
 }
 
 // ── AÇÕES ──────────────────────────────────────────────────────────────────
@@ -1958,6 +2212,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
   display:flex;align-items:center;justify-content:center;margin-left:6px;
 }
 
+.dia-group{margin-bottom:12px;}
+.dia-header{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:8px 0;border-bottom:0.5px solid var(--border);margin-bottom:8px;
+  font-size:13px;color:var(--text2);
+}
+
 /* MODAL BOTTOM-SHEET */
 .modal-overlay{
   position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);
@@ -2180,13 +2441,28 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 
       <!-- MINI CARDS ENTROU/SAIU -->
       <div class="cards-resumo">
-        <div class="mini-card entrou">
+        <div class="mini-card entrou" onclick="toggleEntrouSaiu('entrou')">
           <div class="mini-card-label">Entrou</div>
           <div class="mini-card-valor" id="meu-ganho">R$ 0</div>
         </div>
-        <div class="mini-card saiu">
+        <div class="mini-card saiu" onclick="toggleEntrouSaiu('saiu')">
           <div class="mini-card-label">Saiu</div>
           <div class="mini-card-valor" id="meu-gasto-total">R$ 0</div>
+        </div>
+      </div>
+
+      <!-- EXPANDIDO ENTROU/SAIU -->
+      <div id="card-entrou-expandido" style="display:none">
+        <div class="section-titulo">Entradas do mês</div>
+        <div class="tx-card">
+          <div id="entrou-lista"></div>
+        </div>
+      </div>
+
+      <div id="card-saiu-expandido" style="display:none">
+        <div class="section-titulo">Saídas do mês</div>
+        <div class="tx-card">
+          <div id="saiu-lista"></div>
         </div>
       </div>
 
@@ -2201,9 +2477,17 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 
       <!-- ÚLTIMAS MOVIMENTAÇÕES -->
       <div id="card-tx" style="display:none">
-        <div class="section-titulo">⏱️ Últimas movimentações</div>
+        <div class="section-titulo">⏱️ Últimas movimentações <button class="expandir-btn" onclick="toggleTodasMovimentacoes()" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:12px;margin-left:auto">Ver todas</button></div>
         <div class="tx-card">
           <div id="tx-lista"></div>
+        </div>
+      </div>
+
+      <!-- TODAS MOVIMENTAÇÕES (expandido) -->
+      <div id="card-todas-tx" style="display:none">
+        <div class="section-titulo">Todas as movimentações do mês <button class="expandir-btn" onclick="toggleTodasMovimentacoes()" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:12px;margin-left:auto">Voltar</button></div>
+        <div class="tx-card">
+          <div id="todas-tx-lista"></div>
         </div>
       </div>
 
@@ -2226,6 +2510,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         <button class="resumo-period-btn" data-p="dia"    onclick="abrirDiaPicker()">📅</button>
       </div>
       <input type="date" id="resumo-dia-input" style="display:none"/>
+
+      <!-- Seletor de membro (Grupo) -->
+      <div class="resumo-period" id="resumo-membros-selector" style="display:none">
+        <button class="resumo-period-btn active" data-membro="eu" onclick="setResumoMembro('eu')">Eu</button>
+        <button class="resumo-period-btn" data-membro="todos" onclick="setResumoMembro('todos')">Todos</button>
+      </div>
 
       <!-- Solo -->
       <div id="resumo-solo" style="display:none">
@@ -2375,13 +2665,39 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         <div class="sec-subtitulo">Meses fechados</div>
       </div>
 
-      <div class="card">
-        <div class="card-title">Evolução mensal</div>
-        <div class="chart-wrap-tall"><canvas id="chart-hist"></canvas></div>
+      <!-- Abas de histórico -->
+      <div class="resumo-period">
+        <button class="resumo-period-btn active" data-tab="evolucao" onclick="setHistoricoTab('evolucao')">Evolução</button>
+        <button class="resumo-period-btn" data-tab="movimentacoes" onclick="setHistoricoTab('movimentacoes')">Movimentações</button>
       </div>
 
-      <div id="hist-lista">
-        <div class="empty" style="padding:24px 0">Nenhum mês fechado ainda.</div>
+      <!-- Evolução mensal -->
+      <div id="hist-evolucao">
+        <div class="card">
+          <div class="card-title">Evolução mensal</div>
+          <div class="chart-wrap-tall"><canvas id="chart-hist"></canvas></div>
+        </div>
+
+        <div id="hist-lista">
+          <div class="empty" style="padding:24px 0">Nenhum mês fechado ainda.</div>
+        </div>
+      </div>
+
+      <!-- Movimentações do histórico -->
+      <div id="hist-movimentacoes" style="display:none">
+        <div class="resumo-period">
+          <button class="resumo-period-btn active" data-p-hist="mes" onclick="setHistoricoPeriodo('mes')">Mês</button>
+          <button class="resumo-period-btn" data-p-hist="semana" onclick="setHistoricoPeriodo('semana')">Semana</button>
+          <button class="resumo-period-btn" data-p-hist="dia" onclick="setHistoricoPeriodo('dia')">Dia</button>
+        </div>
+
+        <div class="resumo-period">
+          <button class="resumo-period-btn active" data-tipo-hist="todas" onclick="setHistoricoTipo('todas')">Todas</button>
+          <button class="resumo-period-btn" data-tipo-hist="recebidas" onclick="setHistoricoTipo('recebidas')">Recebidas</button>
+          <button class="resumo-period-btn" data-tipo-hist="gastas" onclick="setHistoricoTipo('gastas')">Gastas</button>
+        </div>
+
+        <div id="hist-movimentacoes-lista"></div>
       </div>
 
     </div>
