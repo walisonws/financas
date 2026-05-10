@@ -1773,6 +1773,20 @@ window.desconectar = function(){
   location.reload();
 }
 
+window.abrirConfiguracoes = function(){
+  const code = localStorage.getItem('grana_code') || '';
+  document.getElementById('config-codigo').textContent = code;
+  document.getElementById('modal-config').classList.add('show');
+}
+window.fecharConfiguracoes = function(){
+  document.getElementById('modal-config').classList.remove('show');
+}
+window.copiarCodigoConfig = async function(){
+  const code = localStorage.getItem('grana_code') || '';
+  try{ await navigator.clipboard.writeText(code); showToast('Código copiado!'); }
+  catch(e){ showToast('Código: '+code); }
+}
+
 // ── CHARTS ─────────────────────────────────────────────────────────────────
 function mkBar(id, labels, datasets){
   if(charts[id]) charts[id].destroy();
@@ -2583,7 +2597,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
           <button class="mes-arrow" onclick="mesPosterior()">&#8250;</button>
         </div>
         <div class="sync-dot"></div>
-        <div class="code-badge" onclick="compartilharCodigo()">⚙️</div>
+        <div class="code-badge" onclick="abrirConfiguracoes()">⚙️</div>
       </div>
     </div>
 
@@ -3103,6 +3117,27 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 
     <a id="modal-pro-zap" href="#" class="modal-btn modal-btn-confirm in" style="text-decoration:none;display:block;text-align:center;background:#25d366">💬 Pagar pelo WhatsApp</a>
     <button class="modal-btn modal-btn-cancel" onclick="fecharModalPro()" style="margin-top:8px;width:100%">Continuar grátis</button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     MODAL CONFIGURAÇÕES
+════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-config" onclick="if(event.target===this)fecharConfiguracoes()">
+  <div class="modal-card">
+    <div class="modal-handle"></div>
+    <div class="modal-titulo" style="color:var(--gold)">⚙️ Configurações</div>
+
+    <div style="background:var(--surface2);border-radius:12px;padding:14px 16px;margin:16px 0 8px;border:1px solid var(--border)">
+      <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-weight:600">Meu código de acesso</div>
+      <div style="font-size:28px;font-weight:800;letter-spacing:4px;color:var(--gold);font-family:'Inter',sans-serif" id="config-codigo"></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Guarde este código — é sua senha de acesso</div>
+    </div>
+
+    <button class="btn-fechar" style="color:var(--text);background:var(--surface2);border:1px solid var(--border);margin-top:4px" onclick="copiarCodigoConfig()">📋 Copiar código</button>
+    <button class="btn-fechar" style="color:var(--text);background:var(--surface2);border:1px solid var(--border);margin-top:8px" onclick="fecharConfiguracoes();compartilharCodigo()">↑ Compartilhar código</button>
+    <button class="btn-sair" style="margin-top:12px;color:var(--red)" onclick="fecharConfiguracoes();setTimeout(desconectar,200)">🚪 Sair da conta</button>
+    <button class="btn-fechar" style="color:var(--text3);background:transparent;border:none;margin-top:4px;opacity:0.6" onclick="fecharConfiguracoes()">Fechar</button>
   </div>
 </div>
 
