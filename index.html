@@ -432,7 +432,12 @@ window.showSection = function(name, idx){
   }
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(n=>n.classList.remove('active'));
-  document.getElementById('sec-'+name).classList.add('active');
+  const sec = document.getElementById('sec-'+name);
+  sec.classList.add('active');
+  // Reinicia animação de entrada
+  sec.style.animation = 'none';
+  sec.getBoundingClientRect();
+  sec.style.animation = '';
   document.querySelectorAll('.nav-btn')[idx].classList.add('active');
   if(name==='meu')      renderMeu();
   if(name==='resumo')   renderResumo();
@@ -1313,20 +1318,6 @@ function renderResumoGrupo(){
   const rowsFixo = document.querySelectorAll('#resumo-grupo .row-fixos');
   rowsFixo.forEach(r=>r.style.display = incluiFixos ? '' : 'none');
 
-  if(membros.length > 1){
-    mkBar('chart-resumo', membros.map(m=>m.nome),[
-      {label:'Entradas',
-       data:membros.map(m=>filtrarPorPeriodo(_dados.ganhos, p).filter(g=>g.pid===m.id).reduce((a,b)=>a+(b.valor||0),0)),
-       backgroundColor:membros.map(m=>m.cor+'99'), borderRadius:8},
-      {label:'Gastos diários',
-       data:membros.map(m=>filtrarPorPeriodo(_dados.gastos, p).filter(x=>x.pid===m.id).reduce((a,b)=>a+(b.valor||0),0)),
-       backgroundColor:'rgba(239,68,68,0.6)', borderRadius:8},
-      ...(incluiFixos ? [{label:'Fixos pagos',
-       data:membros.map(m=>filtrarMes(_dados.fixos).filter(x=>x.pid===m.id&&x.pago).reduce((a,b)=>a+(b.valor||0),0)),
-       backgroundColor:'rgba(249,115,22,0.6)', borderRadius:8}] : [])
-    ]);
-    document.getElementById('card-chart-resumo').style.display = 'block';
-  }
 }
 
 // ── ABA FIXOS ─────────────────────────────────────────────────────────────
@@ -1377,14 +1368,19 @@ function renderFixos(){
     }).join('');
   }
 
-  if(fixos.length > 0){
-    mkBar('chart-fixos', fixos.map(f=>f.nome),[{
-      label:'Valor',
-      data: fixos.map(f=>f.valor),
-      backgroundColor: fixos.map(f=>f.pago?'rgba(212,175,55,0.75)':'rgba(239,68,68,0.5)'),
-      borderRadius:6
-    }]);
-    document.getElementById('card-chart-fixos').style.display = 'block';
+  // Barra de progresso
+  const progWrap = document.getElementById('fixo-progress-wrap');
+  const progFill = document.getElementById('fixo-progress-fill');
+  const progText = document.getElementById('fixo-progress-text');
+  const progPct  = document.getElementById('fixo-progress-pct');
+  if(progWrap && tTotal > 0){
+    const pct = Math.round(tPago/tTotal*100);
+    if(progFill) progFill.style.width = pct + '%';
+    if(progText) progText.textContent = fmt(tPago) + ' de ' + fmt(tTotal);
+    if(progPct)  progPct.textContent  = pct + '%';
+    progWrap.style.display = 'block';
+  } else if(progWrap){
+    progWrap.style.display = 'none';
   }
 }
 
@@ -1830,9 +1826,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .mes-arrow:active{opacity:0.4;}
 .sync-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 7px var(--green);}
 .code-badge{
-  font-size:11px;font-weight:600;color:var(--gold);background:var(--gold-bg);
-  padding:4px 10px;border-radius:20px;cursor:pointer;border:1px solid var(--border2);
+  font-size:17px;color:var(--text3);background:transparent;
+  width:32px;height:32px;border-radius:50%;cursor:pointer;border:none;
+  display:flex;align-items:center;justify-content:center;
+  transition:color 0.15s,background 0.15s;
 }
+.code-badge:hover{color:var(--gold);background:var(--gold-bg);}
 
 /* nav membros */
 #nav-membros{display:flex;gap:8px;padding:12px 20px;overflow-x:auto;scrollbar-width:none;border-bottom:0.5px solid var(--border);}
@@ -1862,16 +1861,25 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
   display:flex;z-index:100;
 }
 .nav-btn{
-  flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;
-  cursor:pointer;color:var(--text3);transition:color 0.15s;background:none;border:none;
-  font-family:'Inter',sans-serif;
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 4px;
+  cursor:pointer;color:var(--text3);transition:color 0.2s;background:none;border:none;
+  font-family:'Inter',sans-serif;position:relative;border-radius:14px;
 }
 .nav-btn.active{color:var(--gold);}
-.nav-icon{font-size:20px;line-height:1;}
-.nav-label{font-size:10px;font-weight:500;}
+.nav-btn.active::before{
+  content:'';position:absolute;inset:3px 6px;
+  background:rgba(212,175,55,0.1);border-radius:12px;
+}
+.nav-icon{font-size:20px;line-height:1;position:relative;}
+.nav-label{font-size:10px;font-weight:600;position:relative;}
 
 /* sections */
-.section{display:none;padding:0 20px;}.section.active{display:block;}
+.section{display:none;padding:0 20px;}
+.section.active{display:block;animation:sectionFadeIn 0.22s ease;}
+@keyframes sectionFadeIn{
+  from{opacity:0;transform:translateY(7px)}
+  to{opacity:1;transform:translateY(0)}
+}
 
 /* sec header */
 .sec-header{padding:18px 0 14px;}
@@ -2298,6 +2306,52 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .modal-btn-cancel{background:var(--surface2);color:var(--text2);}
 .modal-btn-confirm.in{background:linear-gradient(135deg,#f0c84a,#d4af37);color:#0a0800;}
 .modal-btn-confirm.out{background:linear-gradient(135deg,#ff8585,#ef4444);color:#1a0303;}
+
+/* ── STAGGER ANIMAÇÃO NOS CARDS ── */
+@keyframes cardSlideIn{
+  from{opacity:0;transform:translateY(10px)}
+  to{opacity:1;transform:translateY(0)}
+}
+.section.active .card,
+.section.active .gastos-card,
+.section.active .tx-card,
+.section.active .hist-card,
+.section.active .resumo-membro-card{
+  animation:cardSlideIn 0.28s ease both;
+}
+.section.active .card:nth-child(2),.section.active .resumo-membro-card:nth-child(2){animation-delay:0.04s}
+.section.active .card:nth-child(3),.section.active .resumo-membro-card:nth-child(3){animation-delay:0.08s}
+.section.active .card:nth-child(4){animation-delay:0.12s}
+.section.active .card:nth-child(5){animation-delay:0.16s}
+
+/* ── BARRA DE PROGRESSO — CONTAS ── */
+.fixo-progress-wrap{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;
+}
+.fixo-progress-header{
+  display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;
+}
+.fixo-progress-label-txt{
+  font-size:11px;font-weight:600;color:var(--text3);
+  text-transform:uppercase;letter-spacing:0.6px;
+}
+.fixo-progress-right{display:flex;align-items:center;gap:8px;}
+.fixo-progress-valor{font-size:12px;font-weight:600;color:var(--text2);}
+.fixo-progress-pct-badge{
+  font-size:11px;font-weight:700;color:var(--green);
+  background:var(--green-bg);padding:2px 8px;border-radius:10px;
+  border:1px solid rgba(34,197,94,0.2);
+}
+.fixo-progress-track{
+  height:7px;background:var(--surface2);border-radius:10px;
+  overflow:hidden;border:1px solid var(--border);
+}
+.fixo-progress-fill{
+  height:100%;border-radius:10px;
+  background:linear-gradient(90deg,var(--green),#3de077);
+  transition:width 0.6s cubic-bezier(0.4,0,0.2,1);
+}
 </style>
 </head>
 <body>
@@ -2400,7 +2454,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
           <button class="mes-arrow" onclick="mesPosterior()">&#8250;</button>
         </div>
         <div class="sync-dot"></div>
-        <div class="code-badge" onclick="compartilharCodigo()">código</div>
+        <div class="code-badge" onclick="compartilharCodigo()">⚙️</div>
       </div>
     </div>
 
@@ -2603,10 +2657,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 
         <div id="resumo-membros-lista"></div>
 
-        <div class="card" id="card-chart-resumo" style="display:none">
-          <div class="card-title">Comparativo por membro</div>
-          <div class="chart-wrap"><canvas id="chart-resumo"></canvas></div>
-        </div>
 
         <button class="btn-fechar" onclick="fecharMes()">💾 Fechar mês e salvar histórico</button>
         <button class="btn-sair"   onclick="desconectar()">Sair da conta</button>
@@ -2641,16 +2691,25 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 
       <div class="fixo-hint">Toque no quadrado para marcar como pago — só então entra no balanço</div>
 
+      <!-- Barra de progresso de pagamento -->
+      <div class="fixo-progress-wrap" id="fixo-progress-wrap" style="display:none">
+        <div class="fixo-progress-header">
+          <span class="fixo-progress-label-txt">Contas pagas</span>
+          <div class="fixo-progress-right">
+            <span id="fixo-progress-text" class="fixo-progress-valor"></span>
+            <span id="fixo-progress-pct" class="fixo-progress-pct-badge"></span>
+          </div>
+        </div>
+        <div class="fixo-progress-track">
+          <div class="fixo-progress-fill" id="fixo-progress-fill" style="width:0%"></div>
+        </div>
+      </div>
+
       <div class="card" style="margin-top:8px">
         <div id="fixos-lista"><div class="empty">Nenhuma conta cadastrada</div></div>
         <div class="fixo-add-wrap">
           <button class="btn-add" style="width:100%" onclick="abrirCriarFixo()">+ Adicionar conta</button>
         </div>
-      </div>
-
-      <div class="card" id="card-chart-fixos" style="display:none">
-        <div class="card-title">Distribuição — dourado = pago, vermelho = pendente</div>
-        <div class="chart-wrap"><canvas id="chart-fixos"></canvas></div>
       </div>
 
     </div>
