@@ -42,6 +42,9 @@ let modoApp = null;
 let membros = [];
 let membroAtivo = null;
 let _dados = { ganhos:[], gastos:[], fixos:[], historico:[] };
+const _pendingDeletes = new Map();
+let _prevSaldo = null;
+let _tabAtiva = 0;
 let _customCats = [];
 let _info = { plano:'free', validoAte:0 }; // dados de assinatura do grupo
 let mesAtivoIdx  = now.getMonth();
@@ -128,7 +131,7 @@ function fmt(n){ const v=Math.abs(n||0); return 'R$ ' + v.toLocaleString('pt-BR'
 function fmtSigned(n){ const v=n||0; return (v<0?'- ':'') + 'R$ ' + Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function getML(){ return MESES[now.getMonth()] + ' ' + now.getFullYear(); }
 function getMesAtivo(){ return MESES[mesAtivoIdx] + ' ' + mesAtivoYear; }
-function filtrarMes(arr){ const m=getMesAtivo(); return (arr||[]).filter(x=>(x.mes||getML())===m); }
+function filtrarMes(arr){ const m=getMesAtivo(); return (arr||[]).filter(x=>(x.mes||getML())===m && !_pendingDeletes.has(x._key)); }
 function today(){ const d=new Date(); return d.getDate()+'/'+(d.getMonth()+1); }
 function formatarDataTx(t){
   const dias = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
@@ -154,6 +157,35 @@ function showToast(msg, type='success'){
   document.body.appendChild(t);
   setTimeout(()=>t.classList.add('show'), 10);
   setTimeout(()=>{ t.classList.remove('show'); setTimeout(()=>t.remove(), 300); }, 2600);
+}
+
+function showToastUndo(msg, onUndo){
+  document.querySelectorAll('.toast-undo').forEach(t=>t.remove());
+  const t = document.createElement('div');
+  t.className = 'toast toast-success toast-undo';
+  const span = document.createElement('span');
+  span.textContent = msg;
+  const btn = document.createElement('button');
+  btn.className = 'toast-undo-btn';
+  btn.textContent = 'Desfazer';
+  t.appendChild(span);
+  t.appendChild(btn);
+  document.body.appendChild(t);
+  setTimeout(()=>t.classList.add('show'), 10);
+  const timer = setTimeout(()=>{ t.classList.remove('show'); setTimeout(()=>t.remove(), 300); }, 4000);
+  btn.addEventListener('click', ()=>{ clearTimeout(timer); t.classList.remove('show'); setTimeout(()=>t.remove(), 300); onUndo(); });
+}
+
+function animarContador(el, from, to){
+  const dur = 500, start = performance.now(), diff = to - from;
+  function tick(now){
+    const p = Math.min((now - start) / dur, 1);
+    const ease = 1 - Math.pow(1 - p, 3);
+    el.textContent = fmtSigned(from + diff * ease);
+    if(p < 1) requestAnimationFrame(tick);
+    else el.textContent = fmtSigned(to);
+  }
+  requestAnimationFrame(tick);
 }
 
 // ── HAPTIC FEEDBACK ────────────────────────────────────────────────────────
@@ -490,6 +522,7 @@ window.showSection = function(name, idx){
     abrirModalPro('feature');
     return;
   }
+  _tabAtiva = idx;
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(n=>n.classList.remove('active'));
   const sec = document.getElementById('sec-'+name);
@@ -569,11 +602,16 @@ function renderMeu(){
 
   // SALDO HERO
   const saldoEl = document.getElementById('meu-saldo');
-  saldoEl.textContent = fmtSigned(saldo);
-  saldoEl.classList.remove('pop');
-  requestAnimationFrame(()=>saldoEl.classList.add('pop'));
-  setTimeout(()=>saldoEl.classList.remove('pop'), 400);
   saldoEl.classList.toggle('negativo', saldo < 0);
+  if(_prevSaldo !== null && _prevSaldo !== saldo){
+    animarContador(saldoEl, _prevSaldo, saldo);
+  } else {
+    saldoEl.textContent = fmtSigned(saldo);
+    saldoEl.classList.remove('pop');
+    requestAnimationFrame(()=>saldoEl.classList.add('pop'));
+    setTimeout(()=>saldoEl.classList.remove('pop'), 400);
+  }
+  _prevSaldo = saldo;
 
   const labelEl = document.getElementById('saldo-label');
   if(labelEl) labelEl.textContent = isTodos
@@ -585,6 +623,23 @@ function renderMeu(){
   msgEl.textContent = msg.txt;
   msgEl.classList.remove('alerta','perigo');
   if(msg.tipo) msgEl.classList.add(msg.tipo);
+
+  // COMPARAÇÃO MÊS ANTERIOR
+  const compEl = document.getElementById('saldo-comparacao');
+  if(compEl){
+    const idxAnt = mesAtivoIdx === 0 ? 11 : mesAtivoIdx - 1;
+    const yearAnt = mesAtivoIdx === 0 ? mesAtivoYear - 1 : mesAtivoYear;
+    const mesAntLabel = MESES[idxAnt] + ' ' + yearAnt;
+    const histAnt = (_dados.historico||[]).find(h=>h.mes===mesAntLabel);
+    if(histAnt !== undefined){
+      const diff = saldo - histAnt.saldo;
+      const mesNome = MESES[idxAnt];
+      if(diff > 0)      compEl.innerHTML = `<span style="color:var(--green)">▲ ${fmt(diff)} a mais que ${mesNome}</span>`;
+      else if(diff < 0) compEl.innerHTML = `<span style="color:var(--red)">▼ ${fmt(Math.abs(diff))} a menos que ${mesNome}</span>`;
+      else              compEl.innerHTML = `<span style="color:var(--text3)">= Igual a ${mesNome}</span>`;
+      compEl.style.display = 'block';
+    } else { compEl.style.display = 'none'; }
+  }
 
   // MINI CARDS
   document.getElementById('meu-ganho').textContent      = fmt(totalGanho);
@@ -1638,9 +1693,24 @@ window.toggleFixo = async function(key, novoPago){
   showToast(novoPago ? 'Marcada como paga! ✓' : 'Desmarcada');
 }
 
-window.delGanho = async function(key){ await remove(ref(db,`grupos/${grupoCode}/ganhos/${key}`)); showToast('Removido'); }
-window.delGasto = async function(key){ await remove(ref(db,`grupos/${grupoCode}/gastos/${key}`)); showToast('Removido'); }
-window.delFixo  = async function(key){ await remove(ref(db,`grupos/${grupoCode}/fixos/${key}`));  showToast('Removido'); }
+window.delGanho = function(key){
+  if(!(_dados.ganhos||[]).find(g=>g._key===key)) return;
+  const timer = setTimeout(async()=>{ await remove(ref(db,`grupos/${grupoCode}/ganhos/${key}`)); _pendingDeletes.delete(key); }, 4000);
+  _pendingDeletes.set(key, timer); renderTudo();
+  showToastUndo('Entrada removida', ()=>{ clearTimeout(timer); _pendingDeletes.delete(key); renderTudo(); });
+}
+window.delGasto = function(key){
+  if(!(_dados.gastos||[]).find(g=>g._key===key)) return;
+  const timer = setTimeout(async()=>{ await remove(ref(db,`grupos/${grupoCode}/gastos/${key}`)); _pendingDeletes.delete(key); }, 4000);
+  _pendingDeletes.set(key, timer); renderTudo();
+  showToastUndo('Gasto removido', ()=>{ clearTimeout(timer); _pendingDeletes.delete(key); renderTudo(); });
+}
+window.delFixo = function(key){
+  if(!(_dados.fixos||[]).find(g=>g._key===key)) return;
+  const timer = setTimeout(async()=>{ await remove(ref(db,`grupos/${grupoCode}/fixos/${key}`)); _pendingDeletes.delete(key); }, 4000);
+  _pendingDeletes.set(key, timer); renderTudo();
+  showToastUndo('Conta fixa removida', ()=>{ clearTimeout(timer); _pendingDeletes.delete(key); renderTudo(); });
+}
 
 window.fecharMes = async function(){
   const mesLabel = getMesAtivo();
@@ -1829,6 +1899,23 @@ window.showScreen = function showScreen(id){
 
 // ── START ──────────────────────────────────────────────────────────────────
 init();
+
+// ── SWIPE ENTRE ABAS ───────────────────────────────────────────────────────
+(function(){
+  const tabs = ['meu','fixos','resumo','historico'];
+  let startX = 0, startY = 0;
+  const el = document.getElementById('app-content');
+  if(!el) return;
+  el.addEventListener('touchstart', e=>{ startX=e.touches[0].clientX; startY=e.touches[0].clientY; }, {passive:true});
+  el.addEventListener('touchend', e=>{
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    if(Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) * 0.75) return;
+    if(document.querySelector('.modal-overlay.show')) return;
+    if(dx < 0 && _tabAtiva < tabs.length - 1) showSection(tabs[_tabAtiva + 1], _tabAtiva + 1);
+    else if(dx > 0 && _tabAtiva > 0) showSection(tabs[_tabAtiva - 1], _tabAtiva - 1);
+  }, {passive:true});
+})();
 </script>
 <style>
 :root{
@@ -2150,6 +2237,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 }
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 .toast.toast-error{background:var(--red-bg);border-color:var(--red);color:var(--red);}
+.toast.toast-undo{display:flex;align-items:center;gap:12px;white-space:normal;padding:10px 16px;}
+.toast-undo-btn{background:var(--gold);color:#0a0800;border:none;border-radius:20px;padding:4px 12px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif;white-space:nowrap;flex-shrink:0;}
 
 /* empty */
 .empty{font-size:14px;color:var(--text3);padding:12px 0;text-align:center;}
@@ -2629,6 +2718,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         <div class="saldo-label" id="saldo-label">Seu saldo do mês</div>
         <div class="saldo-valor" id="meu-saldo">R$ 0</div>
         <div class="mensagem-status" id="msg-status">Comece lançando uma entrada</div>
+        <div id="saldo-comparacao" style="display:none;margin-top:8px;font-size:12px;font-weight:600;opacity:0.85"></div>
       </div>
 
       <!-- BANNER PLANO (free / trial / pro vencido) -->
