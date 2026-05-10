@@ -156,6 +156,9 @@ function showToast(msg, type='success'){
   setTimeout(()=>{ t.classList.remove('show'); setTimeout(()=>t.remove(), 300); }, 2600);
 }
 
+// ── HAPTIC FEEDBACK ────────────────────────────────────────────────────────
+function haptic(ms=20){ try{ navigator.vibrate && navigator.vibrate(ms); }catch(e){} }
+
 // ── TELA INICIAL ───────────────────────────────────────────────────────────
 function init(){
   const code   = localStorage.getItem('grana_code');
@@ -524,6 +527,17 @@ function renderMeu(){
   document.getElementById('meu-ganho').textContent      = fmt(totalGanho);
   document.getElementById('meu-gasto-total').textContent= fmt(totalGastoReal);
 
+  // CONTADORES nos mini-cards
+  const ganhoCountEl = document.getElementById('meu-ganho-count');
+  const gastoCountEl = document.getElementById('meu-gasto-count');
+  if(ganhoCountEl) ganhoCountEl.textContent = ganhos.length > 0
+    ? `${ganhos.length} entrada${ganhos.length!==1?'s':''}` : '';
+  if(gastoCountEl){
+    const totalSaidas = gastos.length + fixosPagos.length;
+    gastoCountEl.textContent = totalSaidas > 0
+      ? `${totalSaidas} saída${totalSaidas!==1?'s':''}` : '';
+  }
+
   // BOTÕES — mostrar se for o próprio perfil OU visão Todos (lança no próprio)
   document.getElementById('botoes-acao').style.display = (isEu || isTodos) ? 'grid' : 'none';
 
@@ -618,6 +632,10 @@ function renderMeu(){
   } else {
     txCard.style.display = 'none';
   }
+
+  // ESTADO VAZIO — guia quando não há lançamentos no mês
+  const emptyEl = document.getElementById('empty-state');
+  if(emptyEl) emptyEl.style.display = tx.length === 0 ? 'block' : 'none';
 }
 
 window.toggleTodasMovimentacoes = function(){
@@ -768,6 +786,7 @@ window.numpadDigit = function(d){
   if(_numpadCents >= 9999999) return;
   _numpadCents = _numpadCents * 10 + parseInt(d);
   numpadSync();
+  haptic(6);
 }
 
 window.numpadBack = function(){
@@ -919,6 +938,7 @@ window.abrirModal = function(tipo, editKey){
   }
 
   renderModalCats();
+  haptic(20);
   overlay.classList.add('show');
   setTimeout(()=>valEl.focus(), 100);
 }
@@ -1019,6 +1039,7 @@ window.confirmarModal = async function(){
     });
     showToast(_modalDataTs ? 'Gasto registrado (data passada)!' : 'Gasto registrado!');
   }
+  haptic(40);
   fecharModal();
 }
 
@@ -2352,6 +2373,25 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
   background:linear-gradient(90deg,var(--green),#3de077);
   transition:width 0.6s cubic-bezier(0.4,0,0.2,1);
 }
+
+/* ── MINI-CARD CONTADOR ── */
+.mini-card-count{
+  font-size:10px;color:var(--text3);margin-top:3px;font-weight:500;min-height:14px;
+}
+.mini-card.entrou .mini-card-count{color:rgba(212,175,55,0.55);}
+
+/* ── ESTADO VAZIO ── */
+.empty-state-wrap{
+  text-align:center;padding:36px 24px 28px;
+}
+.empty-state-icon{font-size:42px;margin-bottom:14px;line-height:1;}
+.empty-state-titulo{
+  font-size:17px;font-weight:700;color:var(--text);margin-bottom:8px;letter-spacing:-0.3px;
+}
+.empty-state-sub{
+  font-size:13.5px;color:var(--text2);line-height:1.6;
+}
+.empty-state-sub strong{color:var(--gold);}
 </style>
 </head>
 <body>
@@ -2498,10 +2538,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         <div class="mini-card entrou" onclick="toggleEntrouSaiu('entrou')">
           <div class="mini-card-label">Entrou</div>
           <div class="mini-card-valor" id="meu-ganho">R$ 0</div>
+          <div class="mini-card-count" id="meu-ganho-count"></div>
         </div>
         <div class="mini-card saiu" onclick="toggleEntrouSaiu('saiu')">
           <div class="mini-card-label">Saiu</div>
           <div class="mini-card-valor" id="meu-gasto-total">R$ 0</div>
+          <div class="mini-card-count" id="meu-gasto-count"></div>
         </div>
       </div>
 
@@ -2517,6 +2559,15 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         <div class="section-titulo">Saídas do mês</div>
         <div class="tx-card">
           <div id="saiu-lista"></div>
+        </div>
+      </div>
+
+      <!-- ESTADO VAZIO -->
+      <div id="empty-state" style="display:none">
+        <div class="empty-state-wrap">
+          <div class="empty-state-icon">💡</div>
+          <div class="empty-state-titulo">Tudo começa aqui</div>
+          <div class="empty-state-sub">Toque em <strong>Recebi</strong> pra lançar<br>sua primeira entrada do mês</div>
         </div>
       </div>
 
