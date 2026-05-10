@@ -159,6 +159,62 @@ function showToast(msg, type='success'){
 // ── HAPTIC FEEDBACK ────────────────────────────────────────────────────────
 function haptic(ms=20){ try{ navigator.vibrate && navigator.vibrate(ms); }catch(e){} }
 
+// ── SWIPE TO DELETE ────────────────────────────────────────────────────────
+const _swipeAttached = new Set();
+function attachSwipe(containerId){
+  if(_swipeAttached.has(containerId)) return;
+  const container = document.getElementById(containerId);
+  if(!container) return;
+  _swipeAttached.add(containerId);
+
+  let startX, startY, el, delBtn, dragging;
+
+  container.addEventListener('touchstart', e=>{
+    const item = e.target.closest('.tx-item');
+    if(!item) return;
+    delBtn = item.querySelector('.tx-del');
+    if(!delBtn) return;
+    el = item; dragging = false;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    el.style.transition = 'none';
+  }, {passive:true});
+
+  container.addEventListener('touchmove', e=>{
+    if(!el) return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = Math.abs(e.touches[0].clientY - startY);
+    if(!dragging){
+      if(dy > Math.abs(dx) + 5){ el = null; return; }
+      if(Math.abs(dx) < 8) return;
+      dragging = true;
+    }
+    if(dx < 0){
+      const t = Math.max(dx, -76);
+      const prog = Math.min(-t / 76, 1);
+      el.style.transform = `translateX(${t}px)`;
+      el.style.background = `rgba(239,68,68,${prog * 0.18})`;
+    }
+  }, {passive:true});
+
+  container.addEventListener('touchend', e=>{
+    if(!el) return;
+    const dx = e.changedTouches[0].clientX - startX;
+    el.style.transition = 'transform 0.22s ease, background 0.22s ease';
+    el.style.transform = '';
+    el.style.background = '';
+    if(dragging && dx < -52){
+      haptic(30);
+      const btn = delBtn;
+      setTimeout(()=>btn.click(), 170);
+    }
+    el = null; delBtn = null; dragging = false;
+  }, {passive:true});
+}
+
+// ── SKELETON LOADING ───────────────────────────────────────────────────────
+let _skeletonHidden = false;
+
 // ── TELA INICIAL ───────────────────────────────────────────────────────────
 function init(){
   const code   = localStorage.getItem('grana_code');
@@ -293,6 +349,7 @@ function salvarLocal(){
 // ── INICIAR APP ────────────────────────────────────────────────────────────
 function iniciarApp(){
   membroAtivo = meuPerfil; // sempre vai pro perfil de quem logou
+  _skeletonHidden = false; // mostra skeleton até o primeiro render
   showScreen('app');
   document.getElementById('header-mes').textContent = getMesAtivo();
   escutarDados();
@@ -486,6 +543,12 @@ function mensagemMotivacional(saldo, totalGanho){
 }
 
 function renderMeu(){
+  // Esconde skeleton no primeiro render real
+  if(!_skeletonHidden){
+    _skeletonHidden = true;
+    const sk = document.getElementById('skeleton-inicio');
+    if(sk){ sk.classList.add('sk-hidden'); setTimeout(()=>sk.style.display='none', 320); }
+  }
   atualizarBadgesPlano();
   const target = membroAtivo || meuPerfil;
   const isTodos = target === 'todos';
@@ -633,6 +696,9 @@ function renderMeu(){
     txCard.style.display = 'none';
   }
 
+  // SWIPE-TO-DELETE nas movimentações
+  attachSwipe('tx-lista');
+
   // ESTADO VAZIO — guia quando não há lançamentos no mês
   const emptyEl = document.getElementById('empty-state');
   if(emptyEl) emptyEl.style.display = tx.length === 0 ? 'block' : 'none';
@@ -687,6 +753,7 @@ function renderTodasMovimentacoes(){
         ${isOwnerOfTx?`<button class="tx-del" onclick="event.stopPropagation();${t._tipo==='in'?'delGanho':'delGasto'}('${t._key}')">×</button>`:''}
       </div>`;
   }).join('');
+  attachSwipe('todas-tx-lista');
 }
 
 window.toggleEntrouSaiu = function(tipo){
@@ -747,6 +814,7 @@ function renderEntrouSaiu(tipo){
     const total = movimentacoes.reduce((a,b)=>a+(b.valor||0),0);
     const isIn = tipo === 'entrou';
 
+
     return `
       <div class="dia-group">
         <div class="dia-header">
@@ -770,6 +838,7 @@ function renderEntrouSaiu(tipo){
         }).join('')}
       </div>`;
   }).join('');
+  attachSwipe(listId);
 }
 
 // ── NUMPAD MAQUININHA ──────────────────────────────────────────────────────
@@ -2374,6 +2443,26 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
   transition:width 0.6s cubic-bezier(0.4,0,0.2,1);
 }
 
+/* ── SKELETON LOADING ── */
+@keyframes shimmer{
+  0%{background-position:-400px 0}
+  100%{background-position:400px 0}
+}
+.sk{
+  background:linear-gradient(90deg,var(--surface2) 25%,var(--surface3) 50%,var(--surface2) 75%);
+  background-size:800px 100%;
+  animation:shimmer 1.6s infinite linear;
+}
+#skeleton-inicio{
+  position:absolute;inset:0;
+  background:var(--bg);z-index:5;
+  padding:0 20px;
+  transition:opacity 0.3s ease;
+  pointer-events:none;
+}
+#skeleton-inicio.sk-hidden{opacity:0;}
+#sec-meu{position:relative;}
+
 /* ── MINI-CARD CONTADOR ── */
 .mini-card-count{
   font-size:10px;color:var(--text3);margin-top:3px;font-weight:500;min-height:14px;
@@ -2505,6 +2594,21 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
          ABA INÍCIO (antiga "Meu")
     ══════════════════════════════════ -->
     <div class="section active" id="sec-meu">
+
+      <!-- SKELETON LOADING -->
+      <div id="skeleton-inicio">
+        <div class="sk" style="height:118px;margin:16px -20px 14px;border-radius:0;"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+          <div class="sk" style="height:88px;border-radius:18px;"></div>
+          <div class="sk" style="height:88px;border-radius:18px;"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+          <div class="sk" style="height:64px;border-radius:12px;"></div>
+          <div class="sk" style="height:64px;border-radius:12px;"></div>
+        </div>
+        <div class="sk" style="height:150px;border-radius:18px;margin-bottom:12px;"></div>
+        <div class="sk" style="height:120px;border-radius:18px;"></div>
+      </div>
 
       <!-- SALDO HERO -->
       <div class="saldo-hero">
