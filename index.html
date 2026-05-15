@@ -47,6 +47,7 @@ let _prevSaldo = null;
 let _tabAtiva = 0;
 let _customCats = [];
 let _info = { plano:'free', validoAte:0 }; // dados de assinatura do grupo
+let _metaMensal = 0;
 let mesAtivoIdx  = now.getMonth();
 
 // ── CONFIGURAÇÕES COMERCIAIS ──────────────────────────────────────────────
@@ -384,6 +385,7 @@ function iniciarApp(){
   _skeletonHidden = false; // mostra skeleton até o primeiro render
   showScreen('app');
   document.getElementById('header-mes').textContent = getMesAtivo();
+  carregarMeta();
   escutarDados();
   maybeMostrarWelcome();
 }
@@ -581,6 +583,8 @@ function renderMeu(){
     _skeletonHidden = true;
     const sk = document.getElementById('skeleton-inicio');
     if(sk){ sk.classList.add('sk-hidden'); setTimeout(()=>sk.style.display='none', 320); }
+    // Verifica notificações de vencimento após 2s (dá tempo do usuário ver o app)
+    setTimeout(()=>{ if(isPro()) solicitarNotificacoes().then(ok=>{ if(ok) verificarNotificacoesBills(); }); }, 2000);
   }
   atualizarBadgesPlano();
   const target = membroAtivo || meuPerfil;
@@ -728,21 +732,25 @@ function renderMeu(){
   ].sort((a,b)=>(b.ts||0)-(a.ts||0)).slice(0, isTodos ? 30 : 6);
 
   if(tx.length > 0){
+    const txAllCats = getAllCats();
     document.getElementById('tx-lista').innerHTML = tx.map(t=>{
       const sinal = t._tipo==='in' ? '+' : '−';
-      const arrow = t._tipo==='in' ? '↑' : '↓';
+      const catInfo = (t._tipo === 'out' && t.cat) ? (txAllCats[t.cat] || null) : null;
+      const iconContent = catInfo ? catInfo.emoji : (t._tipo==='in' ? '↑' : '↓');
+      const catTag = catInfo ? ` · <span style="color:var(--text3);font-size:9px">${catInfo.emoji} ${t.cat}</span>` : '';
       const dono = isTodos ? membros.find(mm=>mm.id===t.pid) : null;
       const donoTag = dono ? `<span style="background:${dono.cor}22;color:${dono.cor};padding:1px 7px;border-radius:6px;font-size:10px;font-weight:600;margin-right:6px">${dono.nome}</span>` : '';
       const isOwnerOfTx = t.pid === meuPerfil;
-      const onClickEdit = isOwnerOfTx ? `onclick="abrirModal('${t._tipo}','${t._key}')" style="cursor:pointer"` : '';
+      const onClickFn = isOwnerOfTx ? `onclick="abrirModal('${t._tipo}','${t._key}')"` : '';
+      const cursor = isOwnerOfTx ? 'cursor:pointer' : '';
       return `
         <div class="tx-item">
-          <div class="tx-icon-circle ${t._tipo}" ${onClickEdit}>${arrow}</div>
-          <div class="tx-info" ${onClickEdit}>
+          <div class="tx-icon-circle ${t._tipo}" style="${cursor}" ${onClickFn}>${iconContent}</div>
+          <div class="tx-info" style="${cursor}" ${onClickFn}>
             <div class="tx-nome">${donoTag}${t._label}</div>
-            <div class="tx-data">${formatarDataTx(t)}${isOwnerOfTx?' · <span style="color:var(--gold);opacity:0.7">tocar p/ editar</span>':''}</div>
+            <div class="tx-data">${formatarDataTx(t)}${catTag}${isOwnerOfTx?' · <span style="color:var(--gold);opacity:0.7">tocar p/ editar</span>':''}</div>
           </div>
-          <div class="tx-valor ${t._tipo}" ${onClickEdit}>${sinal}${fmt(t.valor)}</div>
+          <div class="tx-valor ${t._tipo}" style="${cursor}" ${onClickFn}>${sinal}${fmt(t.valor)}</div>
           ${isOwnerOfTx?`<button class="tx-del" onclick="event.stopPropagation();${t._tipo==='in'?'delGanho':'delGasto'}('${t._key}')">×</button>`:''}
         </div>`;
     }).join('');
@@ -757,6 +765,9 @@ function renderMeu(){
   // ESTADO VAZIO — guia quando não há lançamentos no mês
   const emptyEl = document.getElementById('empty-state');
   if(emptyEl) emptyEl.style.display = tx.length === 0 ? 'block' : 'none';
+
+  // META MENSAL
+  renderMeta();
 }
 
 window.toggleTodasMovimentacoes = function(){
@@ -790,21 +801,25 @@ function renderTodasMovimentacoes(){
     return;
   }
 
+  const todasAllCats = getAllCats();
   document.getElementById('todas-tx-lista').innerHTML = tx.map(t=>{
     const sinal = t._tipo==='in' ? '+' : '−';
-    const arrow = t._tipo==='in' ? '↑' : '↓';
+    const catInfo = (t._tipo === 'out' && t.cat) ? (todasAllCats[t.cat] || null) : null;
+    const iconContent = catInfo ? catInfo.emoji : (t._tipo==='in' ? '↑' : '↓');
+    const catTag = catInfo ? ` · <span style="color:var(--text3);font-size:9px">${catInfo.emoji} ${t.cat}</span>` : '';
     const dono = isTodos ? membros.find(mm=>mm.id===t.pid) : null;
     const donoTag = dono ? `<span style="background:${dono.cor}22;color:${dono.cor};padding:1px 7px;border-radius:6px;font-size:10px;font-weight:600;margin-right:6px">${dono.nome}</span>` : '';
     const isOwnerOfTx = t.pid === meuPerfil;
-    const onClickEdit = isOwnerOfTx ? `onclick="abrirModal('${t._tipo}','${t._key}')" style="cursor:pointer"` : '';
+    const onClickFn = isOwnerOfTx ? `onclick="abrirModal('${t._tipo}','${t._key}')"` : '';
+    const cursor = isOwnerOfTx ? 'cursor:pointer' : '';
     return `
       <div class="tx-item">
-        <div class="tx-icon-circle ${t._tipo}" ${onClickEdit}>${arrow}</div>
-        <div class="tx-info" ${onClickEdit}>
+        <div class="tx-icon-circle ${t._tipo}" style="${cursor}" ${onClickFn}>${iconContent}</div>
+        <div class="tx-info" style="${cursor}" ${onClickFn}>
           <div class="tx-nome">${donoTag}${t._label}</div>
-          <div class="tx-data">${formatarDataTx(t)}${isOwnerOfTx?' · <span style="color:var(--gold);opacity:0.7">tocar p/ editar</span>':''}</div>
+          <div class="tx-data">${formatarDataTx(t)}${catTag}${isOwnerOfTx?' · <span style="color:var(--gold);opacity:0.7">tocar p/ editar</span>':''}</div>
         </div>
-        <div class="tx-valor ${t._tipo}" ${onClickEdit}>${sinal}${fmt(t.valor)}</div>
+        <div class="tx-valor ${t._tipo}" style="${cursor}" ${onClickFn}>${sinal}${fmt(t.valor)}</div>
         ${isOwnerOfTx?`<button class="tx-del" onclick="event.stopPropagation();${t._tipo==='in'?'delGanho':'delGasto'}('${t._key}')">×</button>`:''}
       </div>`;
   }).join('');
@@ -864,11 +879,11 @@ function renderEntrouSaiu(tipo){
     return;
   }
 
+  const esAllCats = getAllCats();
   document.getElementById(listId).innerHTML = diasOrdenados.map(dia=>{
     const movimentacoes = porDia[dia];
     const total = movimentacoes.reduce((a,b)=>a+(b.valor||0),0);
     const isIn = tipo === 'entrou';
-
 
     return `
       <div class="dia-group">
@@ -878,14 +893,17 @@ function renderEntrouSaiu(tipo){
         </div>
         ${movimentacoes.map(m=>{
           const label = isIn ? (m.desc||'Ganho') : (m.nome||'Gasto');
-          const onClickEdit = `onclick="abrirModal('${isIn?'in':'out'}','${m._key||m.key}')" style="cursor:pointer"`;
+          const catInfo = (!isIn && m.cat) ? (esAllCats[m.cat] || null) : null;
+          const iconContent = catInfo ? catInfo.emoji : (isIn ? '↑' : '↓');
+          const catTag = catInfo ? ` · <span style="color:var(--text3);font-size:9px">${catInfo.emoji} ${m.cat}</span>` : '';
           const isOwnerOfTx = m.pid === meuPerfil;
+          const onClickFn = `onclick="abrirModal('${isIn?'in':'out'}','${m._key||m.key}')"`;
           return `
-            <div class="tx-item" ${onClickEdit}>
-              <div class="tx-icon-circle ${isIn?'in':'out'}">${isIn?'↑':'↓'}</div>
+            <div class="tx-item" style="cursor:pointer" ${onClickFn}>
+              <div class="tx-icon-circle ${isIn?'in':'out'}">${iconContent}</div>
               <div class="tx-info">
                 <div class="tx-nome">${label}</div>
-                <div class="tx-data">${m.desc || m.nome || ''}</div>
+                <div class="tx-data">${formatarDataTx(m)}${catTag}</div>
               </div>
               <div class="tx-valor ${isIn?'in':'out'}">${isIn?'+':'−'}${fmt(m.valor)}</div>
               ${isOwnerOfTx?`<button class="tx-del" onclick="event.stopPropagation();${isIn?'delGanho':'delGasto'}('${m._key||m.key}')">×</button>`:''}
@@ -1689,8 +1707,9 @@ window.addGasto = async function(){
 // addFixo legado — substituído por abrirCriarFixo + confirmarFixo (modo create)
 
 window.toggleFixo = async function(key, novoPago){
+  haptic(novoPago ? 60 : 20);
   await update(ref(db,`grupos/${grupoCode}/fixos/${key}`),{pago:novoPago});
-  showToast(novoPago ? 'Marcada como paga! ✓' : 'Desmarcada');
+  showToast(novoPago ? '✅ Marcada como paga!' : 'Desmarcada');
 }
 
 window.delGanho = function(key){
@@ -1895,6 +1914,119 @@ function mkDoughnut(id, labels, data, colors){
 window.showScreen = function showScreen(id){
   document.querySelectorAll('.screen').forEach(s=>s.style.display='none');
   document.getElementById(id).style.display='flex';
+}
+
+// ── META MENSAL ────────────────────────────────────────────────────────────
+function carregarMeta(){
+  const stored = localStorage.getItem('grana_meta_' + (grupoCode||''));
+  _metaMensal = stored ? parseFloat(stored) : 0;
+}
+
+window.definirMeta = function(){
+  const atual = _metaMensal > 0 ? String(_metaMensal).replace('.',',') : '';
+  const val = prompt('Meta de gastos do mês (R$):\nDeixe em branco para remover', atual);
+  if(val === null) return;
+  if(val.trim() === ''){
+    localStorage.removeItem('grana_meta_' + (grupoCode||''));
+    _metaMensal = 0;
+    renderMeta();
+    showToast('Meta removida');
+    return;
+  }
+  const num = parseFloat(val.replace(',','.'));
+  if(isNaN(num) || num <= 0){ showToast('Valor inválido','error'); return; }
+  _metaMensal = num;
+  localStorage.setItem('grana_meta_' + (grupoCode||''), num);
+  renderMeta();
+  showToast('Meta definida! ✓');
+}
+
+function renderMeta(){
+  const el = document.getElementById('card-meta');
+  if(!el) return;
+
+  if(_metaMensal <= 0){
+    el.innerHTML = `<div onclick="definirMeta()" style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:2px 0">
+      <span style="font-size:22px">🎯</span>
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--text2)">Definir meta de gastos</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:1px">Toque para definir um limite mensal</div>
+      </div>
+      <span style="margin-left:auto;color:var(--gold);font-size:18px">›</span>
+    </div>`;
+    el.style.display = 'block';
+    return;
+  }
+
+  const target = membroAtivo || meuPerfil;
+  const isTodos = target === 'todos';
+  const filtroMembro = isTodos ? (()=>true) : (x=>x.pid===target);
+  const gastos = filtrarMes(_dados.gastos).filter(filtroMembro);
+  const fixosPagos = filtrarMes(_dados.fixos).filter(f=>filtroMembro(f) && f.pago===true);
+  const totalGasto = gastos.reduce((a,b)=>a+(b.valor||0),0) + fixosPagos.reduce((a,b)=>a+(b.valor||0),0);
+
+  const pct = Math.min(Math.round(totalGasto / _metaMensal * 100), 100);
+  const restante = Math.max(_metaMensal - totalGasto, 0);
+
+  let cor = 'var(--green)';
+  let bgCor = 'rgba(34,197,94,0.08)';
+  let msg = `✅ Faltam ${fmt(restante)} pra atingir`;
+  if(pct >= 100){ cor = 'var(--red)'; bgCor = 'rgba(239,68,68,0.08)'; msg = `🚨 Meta estourada em ${fmt(totalGasto - _metaMensal)}`; }
+  else if(pct >= 80){ cor = 'var(--orange)'; bgCor = 'rgba(249,115,22,0.08)'; msg = `⚠️ Quase no limite — faltam ${fmt(restante)}`; }
+  else if(pct >= 50){ cor = 'var(--gold)'; bgCor = 'rgba(212,175,55,0.08)'; msg = `💡 Metade da meta usada`; }
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:7px">
+        <span style="font-size:16px">🎯</span>
+        <span style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.6px">Meta de gastos</span>
+      </div>
+      <button onclick="definirMeta()" style="background:none;border:none;color:var(--gold);font-size:12px;font-weight:600;cursor:pointer;padding:2px 0">Editar</button>
+    </div>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px">
+      <div style="font-size:26px;font-weight:800;color:${cor};font-family:'Inter',sans-serif;letter-spacing:-1px">${pct}%</div>
+      <div style="text-align:right">
+        <div style="font-size:13px;font-weight:700;color:${cor}">${fmt(totalGasto)}</div>
+        <div style="font-size:10px;color:var(--text3)">de ${fmt(_metaMensal)}</div>
+      </div>
+    </div>
+    <div style="height:8px;background:var(--surface2);border-radius:6px;overflow:hidden;margin-bottom:10px;border:1px solid var(--border)">
+      <div style="height:100%;width:${pct}%;background:${cor};border-radius:6px;transition:width 0.7s cubic-bezier(0.4,0,0.2,1)"></div>
+    </div>
+    <div style="font-size:12px;color:var(--text2);background:${bgCor};padding:7px 10px;border-radius:8px">${msg}</div>`;
+  el.style.display = 'block';
+}
+
+// ── NOTIFICAÇÕES DE VENCIMENTO ──────────────────────────────────────────────
+async function solicitarNotificacoes(){
+  if(!('Notification' in window)) return false;
+  if(Notification.permission === 'granted') return true;
+  if(Notification.permission === 'denied') return false;
+  const perm = await Notification.requestPermission();
+  return perm === 'granted';
+}
+
+function verificarNotificacoesBills(){
+  if(!isPro()) return;
+  if(!('Notification' in window) || Notification.permission !== 'granted') return;
+  // Evita notificar mais de uma vez por mês
+  const mesKey = 'grana_notif_' + getMesAtivo() + '_' + (grupoCode||'');
+  if(localStorage.getItem(mesKey)) return;
+
+  const hoje = new Date();
+  const diaHoje = hoje.getDate();
+  const fixosPend = filtrarMes(_dados.fixos).filter(f=>f.pid===meuPerfil && !f.pago && f.dia);
+  const proximas = fixosPend.filter(f=>{ const diff = f.dia - diaHoje; return diff >= 0 && diff <= 3; });
+  if(proximas.length === 0) return;
+
+  const nomes = proximas.map(f=>`${f.nome} (dia ${f.dia})`).join(', ');
+  try {
+    new Notification('⚠️ Grana Pro — Contas a vencer', {
+      body: nomes,
+      icon: '/financas/icon.svg'
+    });
+    localStorage.setItem(mesKey, '1');
+  } catch(e) {}
 }
 
 // ── START ──────────────────────────────────────────────────────────────────
@@ -2755,6 +2887,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         </div>
       </div>
 
+      <!-- META MENSAL -->
+      <div id="card-meta" class="card card-gold" style="display:block;margin-bottom:12px"></div>
+
       <!-- EXPANDIDO ENTROU/SAIU -->
       <div id="card-entrou-expandido" style="display:none">
         <div class="section-titulo">Entradas do mês</div>
@@ -3205,7 +3340,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
       <div class="pro-feat">♾️ Lançamentos ilimitados</div>
     </div>
 
-    <a id="modal-pro-zap" href="#" class="modal-btn modal-btn-confirm in" style="text-decoration:none;display:block;text-align:center;background:#25d366">💬 Pagar pelo WhatsApp</a>
+    <a id="modal-pro-zap" href="#" target="_blank" rel="noopener" class="modal-btn modal-btn-confirm in" style="text-decoration:none;display:block;text-align:center;background:#25d366">💬 Pagar pelo WhatsApp</a>
     <button class="modal-btn modal-btn-cancel" onclick="fecharModalPro()" style="margin-top:8px;width:100%">Continuar grátis</button>
   </div>
 </div>
