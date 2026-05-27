@@ -1427,6 +1427,11 @@ function renderResumoSolo(){
   if(p === 'mes'){
     document.getElementById('rs-saldo-mes-wrap').style.display = 'block';
   }
+
+  // Pizza chart
+  const gastosChart = filtrarPorPeriodo(_dados.gastos, p).filter(g=>g.pid===meuPerfil);
+  const fixosChart  = p==='mes' ? filtrarMes(_dados.fixos).filter(f=>f.pid===meuPerfil && f.pago===true) : [];
+  renderPizzaChart('resumo-pizza-chart-solo', gastosChart, fixosChart);
 }
 
 function renderResumoGrupo(){
@@ -1483,6 +1488,75 @@ function renderResumoGrupo(){
   const rowsFixo = document.querySelectorAll('#resumo-grupo .row-fixos');
   rowsFixo.forEach(r=>r.style.display = incluiFixos ? '' : 'none');
 
+  // Pizza chart (respeita filtro de membro)
+  const gastosChart = filtrarPorPeriodo(_dados.gastos, p).filter(g=>membroAtivo==='todos'||g.pid===membroAtivo);
+  const fixosChart  = incluiFixos ? filtrarMes(_dados.fixos).filter(f=>f.pago===true&&(membroAtivo==='todos'||f.pid===membroAtivo)) : [];
+  renderPizzaChart('resumo-pizza-chart-grupo', gastosChart, fixosChart);
+}
+
+// ── PIZZA CHART ──────────────────────────────────────────────────────────
+function renderPizzaChart(elId, gastosArr, fixosArr){
+  const el = document.getElementById(elId);
+  if(!el) return;
+
+  const allCats = getAllCats();
+  const totals  = {};
+
+  gastosArr.forEach(g=>{
+    const cat = g.cat || 'Outros';
+    totals[cat] = (totals[cat]||0) + (g.valor||0);
+  });
+  fixosArr.forEach(f=>{
+    const cat = f.cat || 'Outros';
+    totals[cat] = (totals[cat]||0) + (f.valor||0);
+  });
+
+  const total = Object.values(totals).reduce((a,b)=>a+b, 0);
+  if(total <= 0){ el.innerHTML = ''; return; }
+
+  const items = Object.entries(totals)
+    .filter(([,v])=>v>0)
+    .sort((a,b)=>b[1]-a[1])
+    .map(([nome,valor])=>{
+      const info = allCats[nome] || {emoji:'💼', color:'#8a7d65'};
+      return {nome, valor, color:info.color, emoji:info.emoji, pct:valor/total};
+    });
+
+  // SVG pie
+  const size=180, cx=90, cy=90, r=78;
+  let paths='';
+  if(items.length === 1){
+    paths = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${items[0].color}"/>`;
+  } else {
+    let angle = -Math.PI/2;
+    items.forEach(item=>{
+      const sweep = item.pct * 2 * Math.PI;
+      const end   = angle + sweep;
+      const x1=cx+r*Math.cos(angle), y1=cy+r*Math.sin(angle);
+      const x2=cx+r*Math.cos(end),   y2=cy+r*Math.sin(end);
+      const large = sweep > Math.PI ? 1 : 0;
+      paths += `<path d="M${cx},${cy} L${x1.toFixed(2)},${y1.toFixed(2)} A${r},${r},0,${large},1,${x2.toFixed(2)},${y2.toFixed(2)}Z" fill="${item.color}" stroke="var(--bg)" stroke-width="2.5"/>`;
+      angle = end;
+    });
+  }
+
+  const legend = items.map(item=>`
+    <div class="pizza-legend-item">
+      <div class="pizza-legend-dot" style="background:${item.color}"></div>
+      <span class="pizza-legend-emoji">${item.emoji}</span>
+      <span class="pizza-legend-nome">${item.nome}</span>
+      <span class="pizza-legend-pct">${Math.round(item.pct*100)}%</span>
+      <span class="pizza-legend-valor">${fmt(item.valor)}</span>
+    </div>`).join('');
+
+  el.innerHTML = `
+    <div class="pizza-wrap">
+      <div class="pizza-titulo">🍕 Gastos por categoria</div>
+      <div class="pizza-svg-wrap">
+        <svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" class="pizza-svg">${paths}</svg>
+      </div>
+      <div class="pizza-legend">${legend}</div>
+    </div>`;
 }
 
 // ── ABA FIXOS ─────────────────────────────────────────────────────────────
@@ -2727,6 +2801,39 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
   font-size:13.5px;color:var(--text2);line-height:1.6;
 }
 .empty-state-sub strong{color:var(--gold);}
+
+/* ── PIZZA CHART RESUMO ── */
+.pizza-wrap{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);padding:16px;margin-bottom:12px;
+}
+.pizza-titulo{
+  font-size:11px;font-weight:700;color:var(--text3);
+  text-transform:uppercase;letter-spacing:0.6px;margin-bottom:14px;
+}
+.pizza-svg-wrap{
+  display:flex;justify-content:center;margin-bottom:16px;
+}
+.pizza-svg{
+  filter:drop-shadow(0 2px 10px rgba(0,0,0,0.4));
+}
+.pizza-legend{display:flex;flex-direction:column;gap:7px;}
+.pizza-legend-item{
+  display:flex;align-items:center;gap:8px;
+}
+.pizza-legend-dot{
+  width:10px;height:10px;border-radius:50%;flex-shrink:0;
+}
+.pizza-legend-emoji{font-size:15px;width:22px;text-align:center;flex-shrink:0;}
+.pizza-legend-nome{flex:1;font-size:13px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pizza-legend-pct{
+  font-size:11px;font-weight:700;color:var(--text3);
+  background:var(--surface2);padding:2px 7px;border-radius:6px;flex-shrink:0;
+}
+.pizza-legend-valor{
+  font-size:13px;font-weight:700;color:var(--text);
+  min-width:82px;text-align:right;flex-shrink:0;
+}
 </style>
 </head>
 <body>
@@ -3031,6 +3138,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
           <div class="metric-value" id="rs-saldo">R$ 0</div>
         </div>
 
+        <div id="resumo-pizza-chart-solo"></div>
+
         <button class="btn-fechar" id="rs-btn-fechar" onclick="fecharMes()">💾 Fechar mês e salvar histórico</button>
         <button class="btn-fechar" style="background:var(--surface2);color:var(--text2);margin-top:6px" onclick="compartilharResumo()">📤 Compartilhar resumo</button>
         <button class="btn-sair"   onclick="desconectar()">Sair da conta</button>
@@ -3068,6 +3177,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 
         <div id="resumo-membros-lista"></div>
 
+        <div id="resumo-pizza-chart-grupo"></div>
 
         <button class="btn-fechar" onclick="fecharMes()">💾 Fechar mês e salvar histórico</button>
         <button class="btn-sair"   onclick="desconectar()">Sair da conta</button>
