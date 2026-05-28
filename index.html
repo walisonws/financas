@@ -152,12 +152,13 @@ function formatarDataTx(t){
 function gerarCodigo(){ return Math.random().toString(36).substring(2,8).toUpperCase(); }
 
 function showToast(msg, type='success'){
+  const icon = type==='error' ? '✕ ' : '✓ ';
   const t = document.createElement('div');
   t.className = 'toast toast-'+type;
-  t.textContent = msg;
+  t.textContent = icon + msg;
   document.body.appendChild(t);
   setTimeout(()=>t.classList.add('show'), 10);
-  setTimeout(()=>{ t.classList.remove('show'); setTimeout(()=>t.remove(), 300); }, 2600);
+  setTimeout(()=>{ t.classList.remove('show'); setTimeout(()=>t.remove(), 300); }, 3200);
 }
 
 function showToastUndo(msg, onUndo){
@@ -506,38 +507,76 @@ window.setMembroAtivo = function(id){
 }
 
 // ── NAV MÊS ────────────────────────────────────────────────────────────────
+function _flashConteudo(){
+  const sec = document.querySelector('.section.active');
+  if(!sec) return;
+  sec.style.opacity = '0.45';
+  sec.style.transition = 'opacity 0.12s ease-out';
+  setTimeout(()=>{ sec.style.opacity = ''; sec.style.transition = ''; }, 130);
+}
 window.mesAnterior = function(){
   if(mesAtivoIdx===0){mesAtivoIdx=11;mesAtivoYear--;}else{mesAtivoIdx--;}
   document.getElementById('header-mes').textContent = getMesAtivo();
+  _flashConteudo();
   renderTudo();
 }
 window.mesPosterior = function(){
   if(mesAtivoIdx===11){mesAtivoIdx=0;mesAtivoYear++;}else{mesAtivoIdx++;}
   document.getElementById('header-mes').textContent = getMesAtivo();
+  _flashConteudo();
   renderTudo();
 }
 
 // ── NAV ABAS ───────────────────────────────────────────────────────────────
+let _transitioning = false;
+function _renderSecao(name){
+  if(name==='meu') renderMeu();
+  else if(name==='resumo') renderResumo();
+  else if(name==='fixos') renderFixos();
+  else if(name==='historico') renderHistorico();
+}
 window.showSection = function(name, idx){
-  // Histórico é Pro
-  if(name==='historico' && !isPro()){
-    abrirModalPro('feature');
+  if(name==='historico' && !isPro()){ abrirModalPro('feature'); return; }
+  if(_transitioning) return;
+
+  const oldIdx = _tabAtiva;
+  const oldSec = document.querySelector('.section.active');
+  const newSec = document.getElementById('sec-'+name);
+
+  document.querySelectorAll('.nav-btn').forEach(n=>n.classList.remove('active'));
+  document.querySelectorAll('.nav-btn')[idx].classList.add('active');
+  _tabAtiva = idx;
+
+  if(!oldSec || oldSec === newSec){
+    if(oldSec) oldSec.classList.remove('active');
+    newSec.classList.add('active');
+    _renderSecao(name);
     return;
   }
-  _tabAtiva = idx;
-  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(n=>n.classList.remove('active'));
-  const sec = document.getElementById('sec-'+name);
-  sec.classList.add('active');
-  // Reinicia animação de entrada
-  sec.style.animation = 'none';
-  sec.getBoundingClientRect();
-  sec.style.animation = '';
-  document.querySelectorAll('.nav-btn')[idx].classList.add('active');
-  if(name==='meu')      renderMeu();
-  if(name==='resumo')   renderResumo();
-  if(name==='fixos')    renderFixos();
-  if(name==='historico')renderHistorico();
+
+  _transitioning = true;
+  const dir = idx > oldIdx ? 1 : -1;
+  const content = document.getElementById('app-content');
+  const DUR = '270ms cubic-bezier(0.25,0.46,0.45,0.94)';
+
+  content.style.overflow = 'hidden';
+  _renderSecao(name);
+
+  newSec.style.cssText = `display:block;opacity:0;transform:translateX(${dir*38}px);transition:none;`;
+  newSec.getBoundingClientRect();
+
+  newSec.style.cssText = `display:block;opacity:1;transform:translateX(0);transition:opacity ${DUR},transform ${DUR};`;
+  oldSec.style.cssText = `display:block;opacity:0;transform:translateX(${dir*-16}px);transition:opacity ${DUR},transform ${DUR};`;
+
+  setTimeout(()=>{
+    oldSec.classList.remove('active');
+    oldSec.style.cssText = '';
+    newSec.classList.add('active');
+    newSec.style.cssText = '';
+    content.style.overflow = '';
+    content.scrollTop = 0;
+    _transitioning = false;
+  }, 275);
 }
 
 // ── RENDER PRINCIPAL ────────────────────────────────────────────────────────
@@ -1087,9 +1126,16 @@ window.abrirModal = function(tipo, editKey){
   setTimeout(()=>valEl.focus(), 100);
 }
 
+function _fecharOverlay(id, cb){
+  const el = document.getElementById(id);
+  const card = el.querySelector('.modal-card');
+  if(card) card.style.cssText = 'transform:translateY(32px);opacity:0;transition:transform 0.2s ease-in,opacity 0.18s ease-in;';
+  el.style.cssText = 'opacity:0;transition:opacity 0.22s ease-in;';
+  setTimeout(()=>{ el.classList.remove('show'); el.style.cssText=''; if(card) card.style.cssText=''; if(cb) cb(); }, 230);
+}
 window.fecharModal = function(){
-  document.getElementById('modal-tx').classList.remove('show');
   _modalEditKey = null;
+  _fecharOverlay('modal-tx');
 }
 
 function getAllCats(){
@@ -1225,8 +1271,8 @@ window.abrirCriarFixo = function(){
 }
 
 window.fecharModalFixo = function(){
-  document.getElementById('modal-fixo').classList.remove('show');
   _editFixoKey = null;
+  _fecharOverlay('modal-fixo');
 }
 
 function renderModalCatsFixo(){
@@ -1842,8 +1888,7 @@ window.delHistorico = async function(key, mes){
 }
 
 window.fecharWelcome = function(){
-  document.getElementById('modal-welcome').classList.remove('show');
-  localStorage.removeItem('grana_show_welcome');
+  _fecharOverlay('modal-welcome', ()=>localStorage.removeItem('grana_show_welcome'));
 }
 
 function maybeMostrarWelcome(){
@@ -1875,7 +1920,7 @@ window.abrirModalPro = function(motivo){
   document.getElementById('modal-pro').classList.add('show');
 }
 window.fecharModalPro = function(){
-  document.getElementById('modal-pro').classList.remove('show');
+  _fecharOverlay('modal-pro');
 }
 
 window.compartilharResumo = async function(){
@@ -1943,7 +1988,7 @@ window.abrirConfiguracoes = function(){
   document.getElementById('modal-config').classList.add('show');
 }
 window.fecharConfiguracoes = function(){
-  document.getElementById('modal-config').classList.remove('show');
+  _fecharOverlay('modal-config');
 }
 window.copiarCodigoConfig = async function(){
   const code = localStorage.getItem('grana_code') || '';
@@ -2834,6 +2879,33 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
   font-size:13px;font-weight:700;color:var(--text);
   min-width:82px;text-align:right;flex-shrink:0;
 }
+
+/* ── MICROINTERAÇÕES — press feedback ── */
+.btn-add{transition:transform 0.08s ease-out;}
+.btn-add:active{transform:scale(0.95);}
+.btn-gold{transition:transform 0.08s ease-out,opacity 0.08s;}
+.btn-gold:active{transform:scale(0.97);opacity:0.88;}
+.btn-green{transition:transform 0.08s ease-out,opacity 0.08s;}
+.btn-green:active{transform:scale(0.97);opacity:0.88;}
+.btn-ganho{transition:transform 0.08s ease-out,opacity 0.08s;}
+.btn-ganho:active{transform:scale(0.97);opacity:0.88;}
+.modal-btn{transition:transform 0.08s ease-out,opacity 0.08s;}
+.modal-btn:active{transform:scale(0.97);opacity:0.9;}
+.fixo-check:active{transform:scale(0.84);}
+.membro-tab{transition:all 0.2s,opacity 0.08s;}
+.membro-tab:active{opacity:0.7;}
+.nav-btn{transition:color 0.12s;}
+.btn-fechar:active{transform:scale(0.98);}
+
+/* ── TOAST — borda success ── */
+.toast.toast-success{border-color:rgba(34,197,94,0.35);}
+
+/* ── MODAL — spring na abertura ── */
+@keyframes slideUp{
+  from{transform:translateY(100%);opacity:0.6}
+  to{transform:translateY(0);opacity:1}
+}
+.modal-card{animation:slideUp 0.26s cubic-bezier(0.34,1.3,0.64,1);}
 </style>
 </head>
 <body>
