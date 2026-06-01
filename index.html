@@ -728,7 +728,10 @@ function renderMeu(){
   const totalGastoDiario = gastos.reduce((a,b)=>a+(b.valor||0),0);
   const totalFixoPago    = fixosPagos.reduce((a,b)=>a+(b.valor||0),0);
   const totalGastoReal   = totalGastoDiario + totalFixoPago;
-  const saldo            = totalGanho - totalGastoReal;
+  const caixaMes         = isTodos
+    ? membros.reduce((a,m)=>a+getCaixa(m.id),0)
+    : getCaixa(target);
+  const saldo            = caixaMes + totalGanho - totalGastoReal;
 
   // SALDO HERO
   const saldoEl = document.getElementById('meu-saldo');
@@ -1530,7 +1533,8 @@ function renderResumoSolo(){
     const fixosPendentes = filtrarMes(_dados.fixos).filter(f=>f.pid===meuPerfil && !f.pago);
     const tFixoPago = fixosPagos.reduce((a,b)=>a+(b.valor||0),0);
     const tFixoPend = fixosPendentes.reduce((a,b)=>a+(b.valor||0),0);
-    const saldo     = tG - tDiario - tFixoPago;
+    const caixaMes  = getCaixa(meuPerfil);
+    const saldo     = caixaMes + tG - tDiario - tFixoPago;
 
     document.getElementById('rs-detalhamento-mes').style.display = 'block';
     document.getElementById('rs-stats-rapido').style.display     = 'none';
@@ -1539,6 +1543,7 @@ function renderResumoSolo(){
     document.getElementById('rs-gasto-diario').textContent= fmt(tDiario);
     document.getElementById('rs-fixo-pago').textContent   = fmt(tFixoPago);
     document.getElementById('rs-fixo-pend').textContent   = fmt(tFixoPend);
+    const rsCaixaEl = document.getElementById('rs-caixa'); if(rsCaixaEl) rsCaixaEl.textContent = fmt(caixaMes);
     document.getElementById('rs-total-gasto').textContent = fmt(tDiario+tFixoPago);
     document.getElementById('rs-saldo').textContent       = fmtSigned(saldo);
     document.getElementById('rs-saldo').style.color       = saldo>=0?'var(--green)':'var(--red)';
@@ -1584,7 +1589,8 @@ function renderResumoGrupo(){
     const tG      = ganhos.reduce((a,b)=>a+(b.valor||0),0);
     const tDiario = gastos.reduce((a,b)=>a+(b.valor||0),0);
     const tFixo   = fixosPagos.reduce((a,b)=>a+(b.valor||0),0);
-    const saldo   = tG - tDiario - tFixo;
+    const caixaM  = incluiFixos ? getCaixa(m.id) : 0;
+    const saldo   = caixaM + tG - tDiario - tFixo;
     totalGrupoGanho  += tG;
     totalGrupoDiario += tDiario;
     totalGrupoFixo   += tFixo;
@@ -1594,6 +1600,7 @@ function renderResumoGrupo(){
         <div class="rm-nome">${m.nome}</div>
         <div class="rm-saldo" style="color:${saldo>=0?'var(--green)':'var(--red)'}">${fmtSigned(saldo)}</div>
       </div>
+      ${incluiFixos ? `<div class="rm-row"><span>Em caixa (início)</span><span style="color:var(--green)">${fmt(caixaM)}</span></div>` : ''}
       <div class="rm-row"><span>Entradas</span><span style="color:var(--gold)">${fmt(tG)} <small style="color:var(--text3)">(${ganhos.length})</small></span></div>
       <div class="rm-row"><span>Gastos diários</span><span style="color:var(--red)">${fmt(tDiario)} <small style="color:var(--text3)">(${gastos.length})</small></span></div>
       ${incluiFixos ? `<div class="rm-row"><span>Fixos pagos</span><span style="color:var(--orange)">${fmt(tFixo)}</span></div>` : ''}
@@ -1958,13 +1965,16 @@ window.fecharMes = async function(){
   const tG  = ganhos.reduce((a,b)=>a+(b.valor||0),0);
   const tGD = gastos.reduce((a,b)=>a+(b.valor||0),0);
   const tF  = fixos.filter(f=>f.pago).reduce((a,b)=>a+(b.valor||0),0);
+  const tCaixa = membros.length
+    ? membros.reduce((a,m)=>a+getCaixa(m.id),0)
+    : getCaixa(meuPerfil);
 
   // Usa mês como chave determinística — impede duplicação
   const mesSlug = mesLabel.toLowerCase().replace(/\s+/g,'-');
   await set(ref(db,`grupos/${grupoCode}/historico/${mesSlug}`),{
     mes:mesLabel, ts:Date.now(),
-    totalGanho:tG, totalGastoDiario:tGD, totalFixo:tF,
-    totalGasto:tGD+tF, saldo:tG-tGD-tF
+    totalGanho:tG, totalGastoDiario:tGD, totalFixo:tF, totalCaixa:tCaixa,
+    totalGasto:tGD+tF, saldo:tCaixa+tG-tGD-tF
   });
   for(const g of ganhos) await remove(ref(db,`grupos/${grupoCode}/ganhos/${g._key}`));
   for(const g of gastos) await remove(ref(db,`grupos/${grupoCode}/gastos/${g._key}`));
@@ -2029,7 +2039,8 @@ window.compartilharResumo = async function(){
     tF = fixosPagos.reduce((a,b)=>a+(b.valor||0),0);
     linhasFixo = `\n📋 Contas fixas pagas: ${fmt(tF)}`;
   }
-  const saldo = tG - tD - tF;
+  const caixaMes = (p === 'mes') ? getCaixa(meuPerfil) : 0;
+  const saldo = caixaMes + tG - tD - tF;
 
   const texto = [
     `📊 *Grana Pro — ${periodoLabel}*`,
