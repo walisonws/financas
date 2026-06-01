@@ -1847,6 +1847,7 @@ function renderHistorico(){
     <div class="hist-card" style="position:relative">
       <button class="hist-del" onclick="delHistorico('${h._key}','${escapar(h.mes)}')">×</button>
       <div class="hist-mes">${h.mes}</div>
+      ${(typeof h.totalCaixa === 'number') ? `<div class="hist-row"><span>Em caixa (início)</span><span style="color:var(--green)">${fmt(h.totalCaixa)}</span></div>` : ''}
       <div class="hist-row"><span>Renda total</span><span style="color:var(--gold);font-weight:600">${fmt(h.totalGanho)}</span></div>
       <div class="hist-row"><span>Gastos diários</span><span style="color:var(--red)">${fmt(h.totalGastoDiario||0)}</span></div>
       <div class="hist-row"><span>Contas fixas pagas</span><span style="color:var(--orange)">${fmt(h.totalFixo||0)}</span></div>
@@ -1854,7 +1855,24 @@ function renderHistorico(){
       <div class="hist-row hist-row-saldo"><span>Saldo final</span>
         <span style="color:${h.saldo>=0?'var(--green)':'var(--red)'}; font-weight:700; font-size:17px">${fmtSigned(h.saldo)}</span>
       </div>
+      <button class="hist-detalhe-btn" onclick="toggleHistDetalhe('${escapar(h._key)}')" style="width:100%;margin-top:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--gold);font-size:13px;font-weight:600;padding:10px;cursor:pointer;font-family:'Inter',sans-serif">📊 Ver gastos por categoria</button>
+      <div id="hist-pizza-${escapar(h._key)}" style="display:none;margin-top:8px"></div>
     </div>`).join('');
+}
+
+window.toggleHistDetalhe = function(key){
+  const cont = document.getElementById('hist-pizza-'+key);
+  if(!cont) return;
+  if(cont.style.display !== 'none'){ cont.style.display='none'; cont.innerHTML=''; return; }
+  const h = (_dados.historico||[]).find(x=>x._key===key);
+  const cats = h && h.categorias ? h.categorias : null;
+  if(!cats || Object.keys(cats).length===0){
+    cont.innerHTML = `<div class="empty" style="padding:14px 0;font-size:13px">Sem detalhe por categoria pra este mês. Os próximos meses fechados já vão mostrar o gráfico aqui. 😉</div>`;
+  } else {
+    const arr = Object.entries(cats).map(([cat,valor])=>({cat, valor}));
+    renderPizzaChart('hist-pizza-'+key, arr, []);
+  }
+  cont.style.display = 'block';
 }
 
 window.setHistoricoTab = function(tab){
@@ -2027,12 +2045,18 @@ window.fecharMes = async function(){
     ? membros.reduce((a,m)=>a+getCaixa(m.id),0)
     : getCaixa(meuPerfil);
 
+  // Resumo por categoria (pro gráfico de pizza no histórico).
+  // Guardado agora porque ganhos/gastos individuais são apagados ao fechar.
+  const porCat = {};
+  gastos.forEach(g=>{ const c=g.cat||'Outros'; porCat[c]=(porCat[c]||0)+(g.valor||0); });
+  fixos.filter(f=>f.pago).forEach(f=>{ const c=f.cat||'Outros'; porCat[c]=(porCat[c]||0)+(f.valor||0); });
+
   // Usa mês como chave determinística — impede duplicação
   const mesSlug = mesLabel.toLowerCase().replace(/\s+/g,'-');
   await set(ref(db,`grupos/${grupoCode}/historico/${mesSlug}`),{
     mes:mesLabel, ts:Date.now(),
     totalGanho:tG, totalGastoDiario:tGD, totalFixo:tF, totalCaixa:tCaixa,
-    totalGasto:tGD+tF, saldo:tCaixa+tG-tGD-tF
+    totalGasto:tGD+tF, saldo:tCaixa+tG-tGD-tF, categorias:porCat
   });
   for(const g of ganhos) await remove(ref(db,`grupos/${grupoCode}/ganhos/${g._key}`));
   for(const g of gastos) await remove(ref(db,`grupos/${grupoCode}/gastos/${g._key}`));
