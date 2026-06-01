@@ -1076,6 +1076,8 @@ window.abrirModal = function(tipo, editKey){
   const valEl   = document.getElementById('modal-valor');
   const descEl  = document.getElementById('modal-desc');
 
+  const dataWrap = document.querySelector('#modal-tx .modal-data-wrap');
+
   if(_modalEditKey){
     // MODO EDIÇÃO — busca o item e pré-preenche
     const lista = tipo==='in' ? _dados.ganhos : _dados.gastos;
@@ -1087,6 +1089,7 @@ window.abrirModal = function(tipo, editKey){
     numpadSet(item.valor || 0);
     descEl.value = (tipo==='in' ? item.desc : item.nome) || '';
     if(tipo==='out') _modalCat = item.cat || 'Alimentação';
+    if(dataWrap) dataWrap.style.display = 'none'; // data não é editável
   } else {
     // MODO CRIAÇÃO
     titulo.textContent = tipo==='in' ? '💰 Recebi' : '💸 Gastei';
@@ -1095,6 +1098,7 @@ window.abrirModal = function(tipo, editKey){
     numpadClear();
     descEl.value = '';
     setModalData('hoje');
+    if(dataWrap) dataWrap.style.display = 'block';
   }
 
   titulo.className   = 'modal-titulo ' + tipo;
@@ -1312,7 +1316,7 @@ window.confirmarFixo = async function(){
     await update(ref(db,`grupos/${grupoCode}/fixos/${_editFixoKey}`), {nome, valor:val, dia, cat:_fixoCat});
     showToast('Conta atualizada! ✓');
   } else {
-    const pidFixo = (modoApp !== 'solo' && membroAtivo) ? membroAtivo : meuPerfil;
+    const pidFixo = (modoApp !== 'solo' && membroAtivo && membroAtivo !== 'todos') ? membroAtivo : meuPerfil;
     await push(ref(db,`grupos/${grupoCode}/fixos`),{
       pid:pidFixo, nome, valor:val, dia, cat:_fixoCat, pago:false,
       mes:getMesAtivo(), ts:Date.now()
@@ -1858,7 +1862,7 @@ window.fecharMes = async function(){
   const jaTem = (_dados.historico||[]).find(h=>h.mes===mesLabel);
   const aviso = jaTem
     ? `O mês "${mesLabel}" já foi fechado antes. Sobrescrever os valores anteriores?`
-    : `Fechar "${mesLabel}"? Ganhos e gastos do mês serão removidos.`;
+    : `Fechar "${mesLabel}"? Ganhos, gastos e contas fixas do mês serão removidos.`;
   if(!confirm(aviso)) return;
 
   const ganhos = filtrarMes(_dados.ganhos);
