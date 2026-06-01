@@ -16,7 +16,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getDatabase, ref, set, onValue, push, remove, get, update } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
+import { getDatabase, ref, set, onValue, push, remove, get, update, runTransaction } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyCfB9cUJ5uQSrYsrglJ4yC-QtorFKCj4UI",
@@ -150,6 +150,66 @@ function formatarDataTx(t){
   return t.data || '';
 }
 function gerarCodigo(){ return Math.random().toString(36).substring(2,8).toUpperCase(); }
+
+// ── CONTAS FIXAS RECORRENTES ────────────────────────────────────────────────
+// Converte "Junho 2026" → índice comparável (ano*12 + mês). -1 se inválido.
+function mesParaIndice(mesStr){
+  if(!mesStr) return -1;
+  const parts = String(mesStr).trim().split(' ');
+  const mi = MESES.indexOf(parts[0]);
+  const yr = parseInt(parts[1]);
+  if(mi < 0 || isNaN(yr)) return -1;
+  return yr*12 + mi;
+}
+
+// Roda 1x por sessão. No início de um mês novo, copia as contas fixas do mês
+// anterior mais recente para o mês atual como PENDENTES. Trava com transação
+// pra não duplicar entre vários celulares do mesmo grupo.
+let _fixosGenChecked = false;
+async function gerarFixosRecorrentes(){
+  if(_fixosGenChecked || !grupoCode) return;
+  _fixosGenChecked = true;
+  const realMes = MESES[now.getMonth()] + ' ' + now.getFullYear();
+  const markerRef = ref(db, `grupos/${grupoCode}/info/fixosGenMes`);
+
+  let oldVal = null;
+  try{
+    const res = await runTransaction(markerRef, cur => {
+      oldVal = cur;
+      if(cur === realMes) return;   // já gerado neste mês — aborta
+      return realMes;               // reivindica a geração
+    });
+    if(!res.committed) return;       // outro dispositivo já cuidou
+  }catch(e){ return; }
+
+  if(oldVal == null) return;         // bootstrap: só marca, não copia (não mexe no mês atual)
+
+  // Encontra o mês anterior mais recente que tenha contas fixas
+  const realIdx = mesParaIndice(realMes);
+  const porMes = {};
+  (_dados.fixos||[]).forEach(f=>{
+    const idx = mesParaIndice(f.mes);
+    if(idx >= 0 && idx < realIdx){ (porMes[idx] = porMes[idx] || []).push(f); }
+  });
+  const indices = Object.keys(porMes).map(Number).sort((a,b)=>b-a);
+  if(indices.length === 0) return;   // nada pra copiar
+  const fonte = porMes[indices[0]];
+
+  // Evita duplicar contas que já existem no mês atual (mesmo nome + dono)
+  const jaExiste = new Set(
+    (_dados.fixos||[]).filter(f=>f.mes===realMes)
+      .map(f=>(f.pid||'')+'|'+(f.nome||'').toLowerCase().trim())
+  );
+
+  for(const f of fonte){
+    const chave = (f.pid||'')+'|'+(f.nome||'').toLowerCase().trim();
+    if(jaExiste.has(chave)) continue;
+    await push(ref(db,`grupos/${grupoCode}/fixos`),{
+      pid:f.pid, nome:f.nome, valor:f.valor, dia:f.dia||null,
+      cat:f.cat||'Outros', pago:false, mes:realMes, ts:Date.now()
+    });
+  }
+}
 
 function showToast(msg, type='success'){
   const icon = type==='error' ? '✕ ' : '✓ ';
@@ -436,6 +496,7 @@ function escutarDados(){
       ? Object.entries(snap.val()).map(([k,v])=>({...v, _key:k}))
       : [];
     renderTudo();
+    gerarFixosRecorrentes(); // recorrência mensal (roda 1x por sessão)
   });
   onValue(ref(db,`grupos/${grupoCode}/historico`), snap=>{
     _dados.historico = snap.val()
@@ -1862,7 +1923,7 @@ window.fecharMes = async function(){
   const jaTem = (_dados.historico||[]).find(h=>h.mes===mesLabel);
   const aviso = jaTem
     ? `O mês "${mesLabel}" já foi fechado antes. Sobrescrever os valores anteriores?`
-    : `Fechar "${mesLabel}"? Ganhos, gastos e contas fixas do mês serão removidos.`;
+    : `Fechar "${mesLabel}"? Ganhos e gastos do mês serão removidos. As contas fixas continuam (se repetem todo mês).`;
   if(!confirm(aviso)) return;
 
   const ganhos = filtrarMes(_dados.ganhos);
@@ -1881,7 +1942,7 @@ window.fecharMes = async function(){
   });
   for(const g of ganhos) await remove(ref(db,`grupos/${grupoCode}/ganhos/${g._key}`));
   for(const g of gastos) await remove(ref(db,`grupos/${grupoCode}/gastos/${g._key}`));
-  for(const f of fixos)  await remove(ref(db,`grupos/${grupoCode}/fixos/${f._key}`));
+  // Contas fixas NÃO são apagadas: servem de molde pra recorrência do próximo mês.
   showToast('Mês fechado! Histórico salvo.');
 }
 
