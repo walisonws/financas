@@ -41,7 +41,7 @@ let meuNome = null;
 let modoApp = null;
 let membros = [];
 let membroAtivo = null;
-let _dados = { ganhos:[], gastos:[], fixos:[], historico:[] };
+let _dados = { ganhos:[], gastos:[], fixos:[], historico:[], caixa:{} };
 const _pendingDeletes = new Map();
 let _prevSaldo = null;
 let _tabAtiva = 0;
@@ -160,6 +160,28 @@ function mesParaIndice(mesStr){
   const yr = parseInt(parts[1]);
   if(mi < 0 || isNaN(yr)) return -1;
   return yr*12 + mi;
+}
+
+// ── SALDO EM CAIXA ──────────────────────────────────────────────────────────
+// Converte "Junho 2026" → "junho-2026" (mesma regra do slug do histórico).
+function mesSlugDe(mesLabel){ return String(mesLabel||'').toLowerCase().replace(/\s+/g,'-'); }
+// Caixa inicial de um membro num mês. Ausente = 0.
+function getCaixa(pid, mesSlug){
+  const slug = mesSlug || mesSlugDe(getMesAtivo());
+  const v = (((_dados.caixa||{})[slug])||{})[pid];
+  return typeof v === 'number' ? v : 0;
+}
+// Grava o caixa inicial de um membro num mês.
+async function setCaixa(pid, valor, mesSlug){
+  const slug = mesSlug || mesSlugDe(getMesAtivo());
+  await set(ref(db,`grupos/${grupoCode}/caixa/${slug}/${pid}`), valor||0);
+}
+// "Junho 2026" → "julho-2026" (vira o ano em Dezembro).
+function mesSeguinteSlug(mesLabel){
+  const idx = mesParaIndice(mesLabel);
+  if(idx < 0) return null;
+  const prox = idx + 1;
+  return mesSlugDe(MESES[prox % 12] + ' ' + Math.floor(prox/12));
 }
 
 // Roda 1x por sessão. No início de um mês novo, copia as contas fixas do mês
@@ -453,7 +475,7 @@ function iniciarApp(){
 
 // ── LISTENERS ──────────────────────────────────────────────────────────────
 function escutarDados(){
-  _dados = { ganhos:[], gastos:[], fixos:[], historico:[] };
+  _dados = { ganhos:[], gastos:[], fixos:[], historico:[], caixa:{} };
 
   // Escuta o info do grupo (plano, validoAte) — se não existe, cria como trial
   onValue(ref(db,`grupos/${grupoCode}/info`), snap=>{
@@ -497,6 +519,10 @@ function escutarDados(){
       : [];
     renderTudo();
     gerarFixosRecorrentes(); // recorrência mensal (roda 1x por sessão)
+  });
+  onValue(ref(db,`grupos/${grupoCode}/caixa`), snap=>{
+    _dados.caixa = snap.val() || {};
+    renderTudo();
   });
   onValue(ref(db,`grupos/${grupoCode}/historico`), snap=>{
     _dados.historico = snap.val()
