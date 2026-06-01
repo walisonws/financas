@@ -774,6 +774,23 @@ function renderMeu(){
     } else { compEl.style.display = 'none'; }
   }
 
+  // LINHA EM CAIXA (sempre visível)
+  const caixaLinhaEl = document.getElementById('caixa-linha');
+  const caixaValEl   = document.getElementById('caixa-valor');
+  const caixaIcEl    = document.getElementById('caixa-edit-ic');
+  if(caixaLinhaEl && caixaValEl){
+    caixaValEl.textContent = fmt(caixaMes);
+    if(isTodos){
+      // visão Todos: mostra a soma, sem edição (edição é individual)
+      caixaLinhaEl.style.cursor = 'default';
+      if(caixaIcEl) caixaIcEl.style.display = 'none';
+    } else {
+      caixaLinhaEl.style.cursor = 'pointer';
+      if(caixaIcEl) caixaIcEl.style.display = 'inline';
+    }
+    caixaLinhaEl.style.display = 'inline-flex';
+  }
+
   // MINI CARDS
   document.getElementById('meu-ganho').textContent      = fmt(totalGanho);
   document.getElementById('meu-gasto-total').textContent= fmt(totalGastoReal);
@@ -3143,6 +3160,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         <div class="saldo-valor" id="meu-saldo">R$ 0</div>
         <div class="mensagem-status" id="msg-status">Comece lançando uma entrada</div>
         <div id="saldo-comparacao" style="display:none;margin-top:8px;font-size:12px;font-weight:600;opacity:0.85"></div>
+        <div id="caixa-linha" onclick="abrirEditarCaixa()" style="margin-top:12px;display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;background:rgba(212,175,55,0.12);border:1px solid rgba(212,175,55,0.35);font-size:13px;font-weight:600;color:var(--gold);cursor:pointer">
+          💰 Em caixa: <strong id="caixa-valor">R$ 0,00</strong><span id="caixa-edit-ic" style="opacity:0.7">✏️</span>
+        </div>
       </div>
 
       <!-- BANNER PLANO (free / trial / pro vencido) -->
@@ -3279,7 +3299,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 
         <!-- Detalhamento (só MÊS) -->
         <div class="card" id="rs-detalhamento-mes">
-          <div class="card-title">Detalhamento de gastos</div>
+          <div class="card-title">Detalhamento do mês</div>
+          <div class="balanco-row">
+            <span style="color:var(--text2)">Em caixa (início do mês)</span>
+            <span style="color:var(--green);font-weight:600" id="rs-caixa">R$ 0</span>
+          </div>
           <div class="balanco-row">
             <span style="color:var(--text2)">Gastos diários</span>
             <span class="val-out" id="rs-gasto-diario">R$ 0</span>
