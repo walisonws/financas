@@ -1121,6 +1121,47 @@ function numpadFixoSet(valor){
   numpadFixoSync();
 }
 
+// ── NUMPAD + MODAL DO CAIXA ────────────────────────────────────────────────
+let _numpadCaixaCents = 0;
+let _caixaEditPid = null;
+function numpadCaixaSync(){
+  const reais = _numpadCaixaCents / 100;
+  document.getElementById('numpad-caixa-val').textContent =
+    reais.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  document.getElementById('modal-caixa-valor').value = reais;
+}
+window.numpadCaixaDigit = function(d){
+  if(_numpadCaixaCents >= 999999999) return;
+  _numpadCaixaCents = _numpadCaixaCents * 10 + parseInt(d);
+  numpadCaixaSync();
+}
+window.numpadCaixaBack  = function(){ _numpadCaixaCents = Math.floor(_numpadCaixaCents/10); numpadCaixaSync(); }
+window.numpadCaixaClear = function(){ _numpadCaixaCents = 0; numpadCaixaSync(); }
+
+window.abrirEditarCaixa = function(){
+  const target = membroAtivo || meuPerfil;
+  if(target === 'todos'){
+    showToast('Selecione a pessoa pra editar o caixa','error');
+    return;
+  }
+  _caixaEditPid = target;
+  const isEu = (target === meuPerfil);
+  const nome = isEu ? 'você' : ((membros.find(m=>m.id===target)||{}).nome || 'a pessoa');
+  document.getElementById('modal-caixa-sub').textContent =
+    `Quanto ${nome} tinha guardado no começo de ${getMesAtivo()}`;
+  _numpadCaixaCents = Math.round(getCaixa(target) * 100);
+  numpadCaixaSync();
+  document.getElementById('modal-caixa').classList.add('show');
+}
+window.fecharModalCaixa = function(){ _caixaEditPid = null; _fecharOverlay('modal-caixa'); }
+window.confirmarCaixa = async function(){
+  const val = parseFloat(document.getElementById('modal-caixa-valor').value) || 0;
+  const pid = _caixaEditPid || meuPerfil;
+  await setCaixa(pid, val);
+  fecharModalCaixa();
+  showToast('Valor em caixa salvo!');
+}
+
 // ── MODAL RECEBI/GASTEI (com modo edição) ──────────────────────────────────
 let _modalTipo = 'in';
 let _modalDataTs = null; // null = hoje
@@ -3503,6 +3544,37 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 <!-- ════════════════════════════════════════════════════════
      MODAL EDITAR CONTA FIXA
 ════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-caixa" onclick="if(event.target===this)fecharModalCaixa()">
+  <div class="modal-card">
+    <div class="modal-handle"></div>
+    <div class="modal-titulo" style="color:var(--gold)">💰 Valor em caixa</div>
+    <div class="modal-sub" id="modal-caixa-sub">Quanto você tinha guardado no começo do mês</div>
+
+    <div class="numpad-display">R$ <span id="numpad-caixa-val">0,00</span></div>
+    <input type="hidden" id="modal-caixa-valor"/>
+
+    <div class="numpad-grid">
+      <button class="numpad-key" onclick="numpadCaixaDigit('1')">1</button>
+      <button class="numpad-key" onclick="numpadCaixaDigit('2')">2</button>
+      <button class="numpad-key" onclick="numpadCaixaDigit('3')">3</button>
+      <button class="numpad-key" onclick="numpadCaixaDigit('4')">4</button>
+      <button class="numpad-key" onclick="numpadCaixaDigit('5')">5</button>
+      <button class="numpad-key" onclick="numpadCaixaDigit('6')">6</button>
+      <button class="numpad-key" onclick="numpadCaixaDigit('7')">7</button>
+      <button class="numpad-key" onclick="numpadCaixaDigit('8')">8</button>
+      <button class="numpad-key" onclick="numpadCaixaDigit('9')">9</button>
+      <button class="numpad-key numpad-back" onclick="numpadCaixaBack()">⌫</button>
+      <button class="numpad-key" onclick="numpadCaixaDigit('0')">0</button>
+      <button class="numpad-key numpad-clear" onclick="numpadCaixaClear()">C</button>
+    </div>
+
+    <div class="modal-actions">
+      <button class="modal-btn modal-btn-cancel" onclick="fecharModalCaixa()">Cancelar</button>
+      <button class="modal-btn" style="background:linear-gradient(135deg,#f0c84a,#d4af37);color:#0a0800" onclick="confirmarCaixa()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-fixo" onclick="if(event.target===this)fecharModalFixo()">
   <div class="modal-card">
     <div class="modal-handle"></div>
