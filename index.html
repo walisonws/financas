@@ -2037,6 +2037,20 @@ window.fecharMes = async function(){
   for(const g of ganhos) await remove(ref(db,`grupos/${grupoCode}/ganhos/${g._key}`));
   for(const g of gastos) await remove(ref(db,`grupos/${grupoCode}/gastos/${g._key}`));
   // Contas fixas NÃO são apagadas: servem de molde pra recorrência do próximo mês.
+
+  // Carry-over: o saldo final de cada pessoa vira o caixa inicial do mês seguinte.
+  const proxSlug = mesSeguinteSlug(mesLabel);
+  if(proxSlug){
+    const alvos = membros.length ? membros.map(m=>m.id) : [meuPerfil];
+    for(const pid of alvos){
+      const rendaP = ganhos.filter(g=>g.pid===pid).reduce((a,b)=>a+(b.valor||0),0);
+      const gastoP = gastos.filter(g=>g.pid===pid).reduce((a,b)=>a+(b.valor||0),0);
+      const fixoP  = fixos.filter(f=>f.pid===pid && f.pago).reduce((a,b)=>a+(b.valor||0),0);
+      const saldoFinalP = getCaixa(pid) + rendaP - gastoP - fixoP;
+      await setCaixa(pid, saldoFinalP, proxSlug);
+    }
+  }
+
   showToast('Mês fechado! Histórico salvo.');
 }
 
