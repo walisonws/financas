@@ -69,7 +69,7 @@ function diasRestantes(){
   return Math.max(0, Math.ceil((_info.validoAte - Date.now())/86400000));
 }
 function countLancamentosMes(){
-  const m = getMesAtivo();
+  const m = getML(); // conta o mês REAL de hoje, não o mês que está sendo visualizado
   const g = (_dados.ganhos||[]).filter(x=>(x.mes||getML())===m && x.pid===meuPerfil).length;
   const s = (_dados.gastos||[]).filter(x=>(x.mes||getML())===m && x.pid===meuPerfil).length;
   return g + s;
@@ -130,7 +130,7 @@ let mesAtivoYear = now.getFullYear();
 // ── UTILS ──────────────────────────────────────────────────────────────────
 function fmt(n){ const v=Math.abs(n||0); return 'R$ ' + v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fmtSigned(n){ const v=n||0; return (v<0?'- ':'') + 'R$ ' + Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
-function getML(){ return MESES[now.getMonth()] + ' ' + now.getFullYear(); }
+function getML(){ const d=new Date(); return MESES[d.getMonth()] + ' ' + d.getFullYear(); } // sempre o mês REAL de hoje (não trava se o app ficar aberto e virar o mês)
 function getMesAtivo(){ return MESES[mesAtivoIdx] + ' ' + mesAtivoYear; }
 function filtrarMes(arr){ const m=getMesAtivo(); return (arr||[]).filter(x=>(x.mes||getML())===m && !_pendingDeletes.has(x._key)); }
 function today(){ const d=new Date(); return d.getDate()+'/'+(d.getMonth()+1); }
@@ -191,7 +191,7 @@ let _fixosGenChecked = false;
 async function gerarFixosRecorrentes(){
   if(_fixosGenChecked || !grupoCode) return;
   _fixosGenChecked = true;
-  const realMes = MESES[now.getMonth()] + ' ' + now.getFullYear();
+  const realMes = getML();
   const markerRef = ref(db, `grupos/${grupoCode}/info/fixosGenMes`);
 
   let oldVal = null;
@@ -1834,7 +1834,7 @@ let _historicoPeriodo = 'mes';
 let _historicoTipo = 'todas';
 
 function renderHistorico(){
-  const hist  = _dados.historico||[];
+  const hist  = (_dados.historico||[]).filter(h=>!_pendingDeletes.has(h._key)); // esconde os pendentes de remoção (Desfazer)
   const listEl= document.getElementById('hist-lista');
   if(hist.length===0){
     listEl.innerHTML='<div class="empty" style="padding:24px 0">Nenhum mês fechado ainda.</div>';
@@ -2006,6 +2006,13 @@ window.addGasto = async function(){
 // addFixo legado — substituído por abrirCriarFixo + confirmarFixo (modo create)
 
 window.toggleFixo = async function(key, novoPago){
+  // No modo Casal/Família, só o dono pode marcar a própria conta como paga.
+  const f = (_dados.fixos||[]).find(x=>x._key===key);
+  if(f && modoApp!=='solo' && f.pid!==meuPerfil){
+    const dono = (membros.find(m=>m.id===f.pid)||{}).nome || 'outra pessoa';
+    showToast(`Essa conta é de ${dono}. Só quem é dono pode marcar como paga.`,'error');
+    return;
+  }
   haptic(novoPago ? 60 : 20);
   await update(ref(db,`grupos/${grupoCode}/fixos/${key}`),{pago:novoPago});
   showToast(novoPago ? '✅ Marcada como paga!' : 'Desmarcada');
@@ -2090,10 +2097,11 @@ window.fecharMes = async function(){
   showToast('Mês fechado! Histórico salvo.');
 }
 
-window.delHistorico = async function(key, mes){
-  if(!confirm(`Apagar o histórico de "${mes}"? Essa ação não pode ser desfeita.`)) return;
-  await remove(ref(db,`grupos/${grupoCode}/historico/${key}`));
-  showToast('Histórico removido');
+window.delHistorico = function(key, mes){
+  if(!(_dados.historico||[]).find(h=>h._key===key)) return;
+  const timer = setTimeout(async()=>{ await remove(ref(db,`grupos/${grupoCode}/historico/${key}`)); _pendingDeletes.delete(key); }, 4000);
+  _pendingDeletes.set(key, timer); renderTudo();
+  showToastUndo(`Histórico de ${mes} removido`, ()=>{ clearTimeout(timer); _pendingDeletes.delete(key); renderTudo(); });
 }
 
 window.fecharWelcome = function(){
