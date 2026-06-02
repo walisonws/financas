@@ -438,12 +438,15 @@ window.entrarGrupo = async function(){
     meuNome     = dadosExistente.nome; // usa o nome original cadastrado
     showToast('Bem-vindo de volta, '+meuNome+'!');
   } else {
-    const qtd   = Object.keys(membrosAtuais).length;
+    const existentes = new Set(Object.keys(membrosAtuais));
     const cores = ['#d4af37','#f97316','#10b981','#ec4899','#3b82f6','#8b5cf6'];
-    const novoId = 'p'+(qtd+1);
+    // Procura o primeiro "pN" livre — evita colisão se alguém foi removido antes
+    let n = 1;
+    while(existentes.has('p'+n)) n++;
+    const novoId = 'p'+n;
     meuPerfil   = novoId;
     membroAtivo = novoId;
-    await set(ref(db,`grupos/${codigo}/membros/${novoId}`),{nome, cor:cores[qtd]||'#d4af37', ts:Date.now()});
+    await set(ref(db,`grupos/${codigo}/membros/${novoId}`),{nome, cor:cores[(n-1)%cores.length], ts:Date.now()});
   }
   salvarLocal();
   iniciarApp();
@@ -1638,7 +1641,7 @@ function renderResumoGrupo(){
   const p = _resumoPeriodo;
   const incluiFixos = (p === 'mes');
   const lista = document.getElementById('resumo-membros-lista');
-  let totalGrupoGanho=0, totalGrupoDiario=0, totalGrupoFixo=0;
+  let totalGrupoGanho=0, totalGrupoDiario=0, totalGrupoFixo=0, totalGrupoCaixa=0;
 
   lista.innerHTML = membros.map(m=>{
     const ganhos     = filtrarPorPeriodo(_dados.ganhos, p).filter(g=>g.pid===m.id);
@@ -1652,6 +1655,7 @@ function renderResumoGrupo(){
     totalGrupoGanho  += tG;
     totalGrupoDiario += tDiario;
     totalGrupoFixo   += tFixo;
+    totalGrupoCaixa  += caixaM;
     return `<div class="resumo-membro-card">
       <div class="rm-header">
         <div class="rm-avatar" style="background:${m.cor}22;color:${m.cor}">${m.nome[0].toUpperCase()}</div>
@@ -1678,7 +1682,7 @@ function renderResumoGrupo(){
   if(tituloGrupo) tituloGrupo.textContent = labelsG[p].titulo;
   if(subGrupo) subGrupo.textContent       = labelsG[p].sub;
 
-  const saldoGrupo = totalGrupoGanho - totalGrupoDiario - totalGrupoFixo;
+  const saldoGrupo = totalGrupoCaixa + totalGrupoGanho - totalGrupoDiario - totalGrupoFixo;
   document.getElementById('rg-ganho').textContent      = fmt(totalGrupoGanho);
   document.getElementById('rg-gasto-diario').textContent= fmt(totalGrupoDiario);
   document.getElementById('rg-fixo').textContent       = fmt(totalGrupoFixo);
@@ -2028,12 +2032,15 @@ window.delFixo = function(key){
 
 window.fecharMes = async function(){
   const mesLabel = getMesAtivo();
-  // Verifica se já tem histórico desse mês (anti-duplicação)
+  // Proteção: fechar é operação única. Re-fechar corromperia os números, porque
+  // os ganhos/gastos já foram apagados na 1ª vez (salvaria renda zerada e
+  // sobrescreveria o "Em caixa" do mês seguinte).
   const jaTem = (_dados.historico||[]).find(h=>h.mes===mesLabel);
-  const aviso = jaTem
-    ? `O mês "${mesLabel}" já foi fechado antes. Sobrescrever os valores anteriores?`
-    : `Fechar "${mesLabel}"? Ganhos e gastos do mês serão removidos. As contas fixas continuam (se repetem todo mês).`;
-  if(!confirm(aviso)) return;
+  if(jaTem){
+    showToast('Esse mês já foi fechado. Pra refazer, apague o card dele no Histórico primeiro.','error');
+    return;
+  }
+  if(!confirm(`Fechar "${mesLabel}"? Ganhos e gastos do mês serão removidos. As contas fixas continuam (se repetem todo mês).`)) return;
 
   const ganhos = filtrarMes(_dados.ganhos);
   const gastos = filtrarMes(_dados.gastos);
@@ -2073,6 +2080,11 @@ window.fecharMes = async function(){
       const saldoFinalP = getCaixa(pid) + rendaP - gastoP - fixoP;
       await setCaixa(pid, saldoFinalP, proxSlug);
     }
+  }
+
+  // Após fechar, as contas fixas voltam a PENDENTES — o próximo ciclo começa limpo.
+  for(const f of fixos){
+    if(f.pago) await update(ref(db,`grupos/${grupoCode}/fixos/${f._key}`), {pago:false});
   }
 
   showToast('Mês fechado! Histórico salvo.');
