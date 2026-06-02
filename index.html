@@ -2039,15 +2039,15 @@ window.delFixo = function(key){
 
 window.fecharMes = async function(){
   const mesLabel = getMesAtivo();
-  // Proteção: fechar é operação única. Re-fechar corromperia os números, porque
-  // os ganhos/gastos já foram apagados na 1ª vez (salvaria renda zerada e
-  // sobrescreveria o "Em caixa" do mês seguinte).
+  // Proteção: fechar é "arquivar", operação única por mês. Re-fechar re-aplicaria
+  // o carry-over do "Em caixa" pro mês seguinte (dobrando o valor). Pra refazer,
+  // apague o card do mês no Histórico primeiro.
   const jaTem = (_dados.historico||[]).find(h=>h.mes===mesLabel);
   if(jaTem){
-    showToast('Esse mês já foi fechado. Pra refazer, apague o card dele no Histórico primeiro.','error');
+    showToast('Esse mês já foi arquivado. Pra refazer, apague o card dele no Histórico primeiro.','error');
     return;
   }
-  if(!confirm(`Fechar "${mesLabel}"? Ganhos e gastos do mês serão removidos. As contas fixas continuam (se repetem todo mês).`)) return;
+  if(!confirm(`Arquivar "${mesLabel}"? Salva o resumo no Histórico e passa o saldo final pro mês seguinte. Nada é apagado — você continua vendo tudo deste mês.`)) return;
 
   const ganhos = filtrarMes(_dados.ganhos);
   const gastos = filtrarMes(_dados.gastos);
@@ -2059,8 +2059,8 @@ window.fecharMes = async function(){
     ? membros.reduce((a,m)=>a+getCaixa(m.id),0)
     : getCaixa(meuPerfil);
 
-  // Resumo por categoria (pro gráfico de pizza no histórico).
-  // Guardado agora porque ganhos/gastos individuais são apagados ao fechar.
+  // Resumo por categoria (pro gráfico de pizza no histórico — atalho rápido,
+  // mesmo que os lançamentos detalhados também continuem disponíveis).
   const porCat = {};
   gastos.forEach(g=>{ const c=g.cat||'Outros'; porCat[c]=(porCat[c]||0)+(g.valor||0); });
   fixos.filter(f=>f.pago).forEach(f=>{ const c=f.cat||'Outros'; porCat[c]=(porCat[c]||0)+(f.valor||0); });
@@ -2072,9 +2072,8 @@ window.fecharMes = async function(){
     totalGanho:tG, totalGastoDiario:tGD, totalFixo:tF, totalCaixa:tCaixa,
     totalGasto:tGD+tF, saldo:tCaixa+tG-tGD-tF, categorias:porCat
   });
-  for(const g of ganhos) await remove(ref(db,`grupos/${grupoCode}/ganhos/${g._key}`));
-  for(const g of gastos) await remove(ref(db,`grupos/${grupoCode}/gastos/${g._key}`));
-  // Contas fixas NÃO são apagadas: servem de molde pra recorrência do próximo mês.
+  // IMPORTANTE: ganhos, gastos e contas fixas NÃO são apagados. Ficam guardados
+  // por mês (campo `mes`), então voltar pro mês passado mostra tudo na íntegra.
 
   // Carry-over: o saldo final de cada pessoa vira o caixa inicial do mês seguinte.
   const proxSlug = mesSeguinteSlug(mesLabel);
@@ -2089,12 +2088,7 @@ window.fecharMes = async function(){
     }
   }
 
-  // Após fechar, as contas fixas voltam a PENDENTES — o próximo ciclo começa limpo.
-  for(const f of fixos){
-    if(f.pago) await update(ref(db,`grupos/${grupoCode}/fixos/${f._key}`), {pago:false});
-  }
-
-  showToast('Mês fechado! Histórico salvo.');
+  showToast('Mês arquivado! Resumo salvo no Histórico.');
 }
 
 window.delHistorico = function(key, mes){
@@ -3437,7 +3431,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 
         <div id="resumo-pizza-chart-solo"></div>
 
-        <button class="btn-fechar" id="rs-btn-fechar" onclick="fecharMes()">💾 Fechar mês e salvar histórico</button>
+        <button class="btn-fechar" id="rs-btn-fechar" onclick="fecharMes()">💾 Arquivar mês no histórico</button>
         <button class="btn-fechar" style="background:var(--surface2);color:var(--text2);margin-top:6px" onclick="compartilharResumo()">📤 Compartilhar resumo</button>
         <button class="btn-sair"   onclick="desconectar()">Sair da conta</button>
       </div>
@@ -3476,7 +3470,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 
         <div id="resumo-pizza-chart-grupo"></div>
 
-        <button class="btn-fechar" onclick="fecharMes()">💾 Fechar mês e salvar histórico</button>
+        <button class="btn-fechar" onclick="fecharMes()">💾 Arquivar mês no histórico</button>
         <button class="btn-sair"   onclick="desconectar()">Sair da conta</button>
       </div>
 
