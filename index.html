@@ -677,6 +677,10 @@ function renderTudo(){
   if(id==='meu')    renderMeu();
   if(id==='resumo') renderResumo();
   if(id==='fixos')  renderFixos();
+  if(id==='historico'){
+    if(_historicoTabAtiva==='movimentacoes') renderHistoricoMovimentacoes();
+    else renderHistorico();
+  }
 }
 
 // ── ABA INÍCIO (novo layout) ────────────────────────────────────────────────
@@ -1546,8 +1550,7 @@ window.abrirDiaPicker = function(){
 }
 
 function renderResumo(){
-  const periodSwitch = document.querySelector('.resumo-period');
-  if(periodSwitch) periodSwitch.style.display = 'flex';
+  _resumoPeriodo = 'mes'; // Resumo é sempre do mês selecionado (Hoje/Semana/Dia foram removidos)
 
   // Mostrar seletor de membro apenas em modo grupo
   const membroSelector = document.getElementById('resumo-membros-selector');
@@ -1608,6 +1611,7 @@ function renderResumoSolo(){
     document.getElementById('rs-total-gasto').textContent = fmt(tDiario+tFixoPago);
     document.getElementById('rs-saldo').textContent       = fmtSigned(saldo);
     document.getElementById('rs-saldo').style.color       = saldo>=0?'var(--green)':'var(--red)';
+    renderBarraBalanco('rs-barra-solo', tG, tDiario+tFixoPago);
   } else {
     // Modo HOJE / SEMANA: stats rápidos
     const saldo  = tG - tDiario;
@@ -1641,9 +1645,11 @@ function renderResumoGrupo(){
   const p = _resumoPeriodo;
   const incluiFixos = (p === 'mes');
   const lista = document.getElementById('resumo-membros-lista');
+  const soEu = membroAtivo !== 'todos';
+  const membrosAlvo = soEu ? membros.filter(m=>m.id===membroAtivo) : membros;
   let totalGrupoGanho=0, totalGrupoDiario=0, totalGrupoFixo=0, totalGrupoCaixa=0;
 
-  lista.innerHTML = membros.map(m=>{
+  lista.innerHTML = membrosAlvo.map(m=>{
     const ganhos     = filtrarPorPeriodo(_dados.ganhos, p).filter(g=>g.pid===m.id);
     const gastos     = filtrarPorPeriodo(_dados.gastos, p).filter(g=>g.pid===m.id);
     const fixosPagos = incluiFixos ? filtrarMes(_dados.fixos).filter(f=>f.pid===m.id && f.pago===true) : [];
@@ -1669,18 +1675,11 @@ function renderResumoGrupo(){
     </div>`;
   }).join('');
 
-  // Atualiza título do balanço do grupo conforme período
-  const tituloGrupo = document.querySelector('#resumo-grupo .sec-titulo');
-  const subGrupo    = document.querySelector('#resumo-grupo .sec-subtitulo');
-  const diaSelGrupo = _resumoDataEspecifica ? new Date(_resumoDataEspecifica).toLocaleDateString('pt-BR',{weekday:'long', day:'2-digit', month:'2-digit'}) : '';
-  const labelsG = {
-    hoje:   { titulo:'Movimento de hoje',  sub:'Soma de todos do grupo' },
-    semana: { titulo:'Movimento da semana', sub:'Últimos 7 dias' },
-    mes:    { titulo:'Balanço do grupo',    sub:'Inclui contas fixas pagas' },
-    dia:    { titulo:'Movimento do dia',    sub:diaSelGrupo }
-  };
-  if(tituloGrupo) tituloGrupo.textContent = labelsG[p].titulo;
-  if(subGrupo) subGrupo.textContent       = labelsG[p].sub;
+  // Título conforme "Eu" ou "Todos" (sempre do mês selecionado na setinha)
+  const tituloGrupo = document.getElementById('rg-titulo');
+  const subGrupo    = document.getElementById('rg-subtitulo');
+  if(tituloGrupo) tituloGrupo.textContent = soEu ? 'Seu balanço' : 'Balanço do grupo';
+  if(subGrupo) subGrupo.textContent       = (soEu ? 'Só os seus números · ' : 'Todos do grupo · ') + getMesAtivo();
 
   const saldoGrupo = totalGrupoCaixa + totalGrupoGanho - totalGrupoDiario - totalGrupoFixo;
   document.getElementById('rg-ganho').textContent      = fmt(totalGrupoGanho);
@@ -1689,6 +1688,7 @@ function renderResumoGrupo(){
   document.getElementById('rg-gasto-total').textContent= fmt(totalGrupoDiario+totalGrupoFixo);
   document.getElementById('rg-saldo').textContent      = fmtSigned(saldoGrupo);
   document.getElementById('rg-saldo').style.color      = saldoGrupo>=0?'var(--green)':'var(--red)';
+  renderBarraBalanco('rg-barra-grupo', totalGrupoGanho, totalGrupoDiario+totalGrupoFixo);
 
   // Esconde linha de fixos no Hoje/Semana
   const rowsFixo = document.querySelectorAll('#resumo-grupo .row-fixos');
@@ -1698,6 +1698,36 @@ function renderResumoGrupo(){
   const gastosChart = filtrarPorPeriodo(_dados.gastos, p).filter(g=>membroAtivo==='todos'||g.pid===membroAtivo);
   const fixosChart  = incluiFixos ? filtrarMes(_dados.fixos).filter(f=>f.pago===true&&(membroAtivo==='todos'||f.pid===membroAtivo)) : [];
   renderPizzaChart('resumo-pizza-chart-grupo', gastosChart, fixosChart);
+}
+
+// ── BARRA BALANÇO (Ganhou × Gastou × Sobrou) ──────────────────────────────
+function renderBarraBalanco(elId, ganhou, gastou){
+  const el = document.getElementById(elId);
+  if(!el) return;
+  const sobrou = ganhou - gastou;
+  const base = Math.max(ganhou, gastou, 1);
+  const pctG = Math.round(ganhou/base*100);
+  const pctS = Math.round(gastou/base*100);
+  const corSobrou = sobrou>=0 ? 'var(--green)' : 'var(--red)';
+  el.innerHTML = `
+    <div class="balanco-visual">
+      <div class="bv-grid">
+        <div class="bv-item">
+          <div class="bv-label">💰 Ganhou</div>
+          <div class="bv-val" style="color:var(--gold)">${fmt(ganhou)}</div>
+          <div class="bv-bar"><div class="bv-fill" style="width:${pctG}%;background:linear-gradient(90deg,var(--gold-light),var(--gold))"></div></div>
+        </div>
+        <div class="bv-item">
+          <div class="bv-label">💸 Gastou</div>
+          <div class="bv-val" style="color:var(--red)">${fmt(gastou)}</div>
+          <div class="bv-bar"><div class="bv-fill" style="width:${pctS}%;background:linear-gradient(90deg,#ff8585,var(--red))"></div></div>
+        </div>
+      </div>
+      <div class="bv-sobrou" style="border-color:${corSobrou}44;background:${corSobrou}14">
+        <span>${sobrou>=0?'✅ Sobrou esse mês':'🚨 Faltou esse mês'}</span>
+        <strong style="color:${corSobrou}">${fmtSigned(sobrou)}</strong>
+      </div>
+    </div>`;
 }
 
 // ── PIZZA CHART ──────────────────────────────────────────────────────────
@@ -1919,37 +1949,24 @@ function renderHistoricoMovimentacoes(){
   const isTodos = target === 'todos';
   const filtroMembro = isTodos ? (()=>true) : (x=>x.pid===target);
 
+  // Movimentações do MÊS selecionado na setinha do topo (filtrarMes)
   let dados = [];
   if(_historicoTipo === 'recebidas' || _historicoTipo === 'todas'){
-    dados.push(...(_dados.ganhos||[]).filter(filtroMembro));
+    dados.push(...filtrarMes(_dados.ganhos).filter(filtroMembro));
   }
   if(_historicoTipo === 'gastas' || _historicoTipo === 'todas'){
-    dados.push(...(_dados.gastos||[]).filter(filtroMembro));
+    dados.push(...filtrarMes(_dados.gastos).filter(filtroMembro));
   }
-
-  // Filtrar por período
-  const agora = new Date();
-  dados = dados.filter(d=>{
-    const ts = d.ts || 0;
-    const data = new Date(ts);
-
-    if(_historicoPeriodo === 'dia'){
-      return data.toDateString() === agora.toDateString();
-    } else if(_historicoPeriodo === 'semana'){
-      const semanaAgo = new Date(agora);
-      semanaAgo.setDate(agora.getDate() - 7);
-      return data >= semanaAgo && data <= agora;
-    } else { // mês
-      return data.getMonth() === agora.getMonth() && data.getFullYear() === agora.getFullYear();
-    }
-  });
 
   // Ordenar por data decrescente
   dados.sort((a,b)=>(b.ts||0)-(a.ts||0));
 
+  const subEl = document.getElementById('hist-mov-sub');
+  if(subEl) subEl.textContent = getMesAtivo();
+
   const listEl = document.getElementById('hist-movimentacoes-lista');
   if(dados.length === 0){
-    listEl.innerHTML = '<div class="empty" style="padding:16px;text-align:center;color:var(--text3)">Nenhuma movimentação neste período</div>';
+    listEl.innerHTML = '<div class="empty" style="padding:16px;text-align:center;color:var(--text3)">Nenhuma movimentação neste mês</div>';
     return;
   }
 
@@ -2659,6 +2676,16 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .balanco-row:last-child{border-bottom:none;}
 .balanco-row-total{display:flex;justify-content:space-between;padding:10px 0 0;font-size:15px;font-weight:700;}
 
+/* barra balanço (Ganhou × Gastou × Sobrou) */
+.balanco-visual{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px;}
+.bv-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:12px;}
+.bv-label{font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px;}
+.bv-val{font-size:19px;font-weight:800;letter-spacing:-0.5px;font-family:'Inter',sans-serif;}
+.bv-bar{height:6px;background:var(--surface2);border-radius:6px;overflow:hidden;margin-top:7px;}
+.bv-fill{height:100%;border-radius:6px;transition:width 0.6s cubic-bezier(0.4,0,0.2,1);}
+.bv-sobrou{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-radius:12px;border:1px solid;font-size:13px;font-weight:600;color:var(--text2);}
+.bv-sobrou strong{font-size:18px;font-weight:800;letter-spacing:-0.5px;}
+
 /* histórico */
 .hist-card{background:var(--surface2);border-radius:var(--radius-sm);padding:16px;margin-bottom:10px;border:1px solid var(--border);}
 .hist-mes{font-family:'Inter',sans-serif;font-size:16px;font-weight:700;margin-bottom:12px;color:var(--gold);}
@@ -3361,14 +3388,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
     ══════════════════════════════════ -->
     <div class="section" id="sec-resumo">
 
-      <!-- Seletor de período -->
-      <div class="resumo-period">
-        <button class="resumo-period-btn" data-p="hoje"   onclick="setResumoPeriodo('hoje')">Hoje</button>
-        <button class="resumo-period-btn" data-p="semana" onclick="setResumoPeriodo('semana')">Semana</button>
-        <button class="resumo-period-btn active" data-p="mes" onclick="setResumoPeriodo('mes')">Mês</button>
-        <button class="resumo-period-btn" data-p="dia"    onclick="abrirDiaPicker()">📅</button>
-      </div>
-      <input type="date" id="resumo-dia-input" style="display:none"/>
+      <!-- Resumo é sempre do mês selecionado na setinha do topo -->
 
       <!-- Seletor de membro (Grupo) -->
       <div class="resumo-period" id="resumo-membros-selector" style="display:none">
@@ -3382,6 +3402,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
           <div class="sec-titulo" id="rs-titulo">Balanço do mês</div>
           <div class="sec-subtitulo" id="rs-subtitulo">Gastos diários separados dos fixos</div>
         </div>
+
+        <div id="rs-barra-solo"></div>
 
         <div class="metrics-row">
           <div class="metric au metric-full">
@@ -3439,17 +3461,19 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
       <!-- Grupo -->
       <div id="resumo-grupo" style="display:none">
         <div class="sec-header">
-          <div class="sec-titulo">Balanço do grupo</div>
-          <div class="sec-subtitulo">Gastos diários separados dos fixos</div>
+          <div class="sec-titulo" id="rg-titulo">Balanço do grupo</div>
+          <div class="sec-subtitulo" id="rg-subtitulo">Gastos diários separados dos fixos</div>
         </div>
+
+        <div id="rg-barra-grupo"></div>
 
         <div class="metrics-row">
           <div class="metric au">
-            <div class="metric-label">Renda grupo</div>
+            <div class="metric-label">Renda</div>
             <div class="metric-value" id="rg-ganho">R$ 0</div>
           </div>
           <div class="metric g">
-            <div class="metric-label">Saldo grupo</div>
+            <div class="metric-label">Saldo</div>
             <div class="metric-value" id="rg-saldo">R$ 0</div>
           </div>
           <div class="metric r">
@@ -3554,19 +3578,15 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         </div>
       </div>
 
-      <!-- Movimentações do histórico -->
+      <!-- Movimentações do histórico (do mês selecionado na setinha do topo) -->
       <div id="hist-movimentacoes" style="display:none">
-        <div class="resumo-period">
-          <button class="resumo-period-btn active" data-p-hist="mes" onclick="setHistoricoPeriodo('mes')">Mês</button>
-          <button class="resumo-period-btn" data-p-hist="semana" onclick="setHistoricoPeriodo('semana')">Semana</button>
-          <button class="resumo-period-btn" data-p-hist="dia" onclick="setHistoricoPeriodo('dia')">Dia</button>
-        </div>
-
         <div class="resumo-period">
           <button class="resumo-period-btn active" data-tipo-hist="todas" onclick="setHistoricoTipo('todas')">Todas</button>
           <button class="resumo-period-btn" data-tipo-hist="recebidas" onclick="setHistoricoTipo('recebidas')">Recebidas</button>
           <button class="resumo-period-btn" data-tipo-hist="gastas" onclick="setHistoricoTipo('gastas')">Gastas</button>
         </div>
+
+        <div class="sec-subtitulo" id="hist-mov-sub" style="margin:2px 2px 10px"></div>
 
         <div id="hist-movimentacoes-lista"></div>
       </div>
