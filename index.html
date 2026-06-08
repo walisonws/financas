@@ -44,6 +44,7 @@ let membroAtivo = null;
 let _dados = { ganhos:[], gastos:[], fixos:[], historico:[], caixa:{} };
 const _pendingDeletes = new Map();
 let _prevSaldo = null;
+let _prevSaldoCtx = null; // contexto (membro|mês) do último saldo exibido — anima só dentro do mesmo contexto
 let _tabAtiva = 0;
 let _customCats = [];
 let _info = { plano:'free', validoAte:0 }; // dados de assinatura do grupo
@@ -69,9 +70,21 @@ function diasRestantes(){
   return Math.max(0, Math.ceil((_info.validoAte - Date.now())/86400000));
 }
 function countLancamentosMes(){
-  const m = getML(); // conta o mês REAL de hoje, não o mês que está sendo visualizado
-  const g = (_dados.ganhos||[]).filter(x=>(x.mes||getML())===m && x.pid===meuPerfil).length;
-  const s = (_dados.gastos||[]).filter(x=>(x.mes||getML())===m && x.pid===meuPerfil).length;
+  // Conta os lançamentos CRIADOS no mês real de hoje (por `criadoEm`), não o mês contábil.
+  // Assim, lançar com "data passada" não fura o limite do plano grátis.
+  const hoje = new Date();
+  const ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1).getTime();
+  const fim = new Date(hoje.getFullYear(), hoje.getMonth()+1, 1).getTime();
+  const m = getML();
+  const conta = x => {
+    if(x.pid !== meuPerfil) return false;
+    // Registros novos têm `criadoEm` (timestamp real de criação). Os antigos caem no
+    // comportamento anterior (mês contábil), pra não mudar contagem retroativa.
+    if(typeof x.criadoEm === 'number') return x.criadoEm >= ini && x.criadoEm < fim;
+    return (x.mes||getML()) === m;
+  };
+  const g = (_dados.ganhos||[]).filter(conta).length;
+  const s = (_dados.gastos||[]).filter(conta).length;
   return g + s;
 }
 function getWhatsappLink(){
@@ -130,6 +143,9 @@ let mesAtivoYear = now.getFullYear();
 // ── UTILS ──────────────────────────────────────────────────────────────────
 function fmt(n){ const v=Math.abs(n||0); return 'R$ ' + v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fmtSigned(n){ const v=n||0; return (v<0?'- ':'') + 'R$ ' + Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+// Escapa texto livre do usuário (nomes, descrições, categorias) antes de injetar no HTML.
+// Evita que um nome/descrição com HTML/script seja executado na tela de outros membros (XSS).
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function getML(){ const d=new Date(); return MESES[d.getMonth()] + ' ' + d.getFullYear(); } // sempre o mês REAL de hoje (não trava se o app ficar aberto e virar o mês)
 function getMesAtivo(){ return MESES[mesAtivoIdx] + ' ' + mesAtivoYear; }
 function filtrarMes(arr){ const m=getMesAtivo(); return (arr||[]).filter(x=>(x.mes||getML())===m && !_pendingDeletes.has(x._key)); }
@@ -563,9 +579,9 @@ function renderNavMembros(){
     const podeRemover = m.id !== meuPerfil;
     return `
     <div class="membro-tab ${m.id===membroAtivo?'active':''}" onclick="setMembroAtivo('${m.id}')">
-      <div class="membro-avatar" style="background:${m.cor}22;color:${m.cor}">${m.nome[0].toUpperCase()}</div>
-      <span>${m.nome}</span>
-      ${podeRemover?`<button class="membro-x" onclick="event.stopPropagation();removerMembro('${m.id}','${m.nome.replace(/'/g,"\\'")}')">×</button>`:''}
+      <div class="membro-avatar" style="background:${m.cor}22;color:${m.cor}">${esc((m.nome||'?')[0].toUpperCase())}</div>
+      <span>${esc(m.nome)}</span>
+      ${podeRemover?`<button class="membro-x" onclick="event.stopPropagation();removerMembro('${m.id}','${esc(m.nome).replace(/'/g,"\\'")}')">×</button>`:''}
     </div>`;
   }).join('');
   renderTudo();
@@ -743,7 +759,11 @@ function renderMeu(){
   // SALDO HERO
   const saldoEl = document.getElementById('meu-saldo');
   saldoEl.classList.toggle('negativo', saldo < 0);
-  if(_prevSaldo !== null && _prevSaldo !== saldo){
+  // Só anima o contador quando o valor muda DENTRO do mesmo contexto (mesma pessoa + mesmo mês).
+  // Ao trocar de aba de membro ou de mês, apenas exibe o novo valor — sem animar entre números
+  // de contextos diferentes (evita impressão de ganho/perda que não aconteceu).
+  const ctxSaldo = (target||'') + '|' + getMesAtivo();
+  if(_prevSaldo !== null && _prevSaldo !== saldo && _prevSaldoCtx === ctxSaldo){
     animarContador(saldoEl, _prevSaldo, saldo);
   } else {
     saldoEl.textContent = fmtSigned(saldo);
@@ -752,6 +772,7 @@ function renderMeu(){
     setTimeout(()=>saldoEl.classList.remove('pop'), 400);
   }
   _prevSaldo = saldo;
+  _prevSaldoCtx = ctxSaldo;
 
   const labelEl = document.getElementById('saldo-label');
   if(labelEl) labelEl.textContent = isTodos
@@ -834,9 +855,9 @@ function renderMeu(){
       const wid  = Math.round(val/maxVal*100);
       return `
         <div class="gasto-cat-item">
-          <div class="gasto-cat-icon" style="background:${info.color}1f;color:${info.color}">${info.emoji}</div>
+          <div class="gasto-cat-icon" style="background:${info.color}1f;color:${info.color}">${esc(info.emoji)}</div>
           <div class="gasto-cat-info">
-            <div class="gasto-cat-nome">${cat}</div>
+            <div class="gasto-cat-nome">${esc(cat)}</div>
             <div class="gasto-bar-wrap"><div class="gasto-bar" style="width:${wid}%;background:linear-gradient(90deg,${info.color},${info.color}aa)"></div></div>
           </div>
           <div class="gasto-cat-right">
@@ -849,7 +870,7 @@ function renderMeu(){
     const topCat = sorted[0];
     const economia = Math.round(topCat[1]*0.2);
     document.getElementById('cats-dica').innerHTML =
-      `💡 Cortando 20% em <strong style="color:var(--gold)">${topCat[0]}</strong> você economiza <strong style="color:var(--green)">${fmt(economia)}/mês</strong>`;
+      `💡 Cortando 20% em <strong style="color:var(--gold)">${esc(topCat[0])}</strong> você economiza <strong style="color:var(--green)">${fmt(economia)}/mês</strong>`;
 
     catCard.style.display = 'block';
   } else {
@@ -890,9 +911,9 @@ function renderMeu(){
       const sinal = t._tipo==='in' ? '+' : '−';
       const catInfo = (t._tipo === 'out' && t.cat) ? (txAllCats[t.cat] || null) : null;
       const iconContent = catInfo ? catInfo.emoji : (t._tipo==='in' ? '↑' : '↓');
-      const catTag = catInfo ? ` · <span class="cat-inline">${t.cat}</span>` : '';
+      const catTag = catInfo ? ` · <span class="cat-inline">${esc(t.cat)}</span>` : '';
       const dono = isTodos ? membros.find(mm=>mm.id===t.pid) : null;
-      const donoTag = dono ? `<span style="background:${dono.cor}22;color:${dono.cor};padding:1px 7px;border-radius:6px;font-size:10px;font-weight:600;margin-right:6px">${dono.nome}</span>` : '';
+      const donoTag = dono ? `<span style="background:${dono.cor}22;color:${dono.cor};padding:1px 7px;border-radius:6px;font-size:10px;font-weight:600;margin-right:6px">${esc(dono.nome)}</span>` : '';
       const isOwnerOfTx = t.pid === meuPerfil;
       const onClickFn = isOwnerOfTx ? `onclick="abrirModal('${t._tipo}','${t._key}')"` : '';
       const cursor = isOwnerOfTx ? 'cursor:pointer' : '';
@@ -901,7 +922,7 @@ function renderMeu(){
         <div class="tx-item">
           <div class="tx-icon-circle ${t._tipo}${editableClass}" style="${cursor}" ${onClickFn}>${iconContent}</div>
           <div class="tx-info" style="${cursor}" ${onClickFn}>
-            <div class="tx-nome">${donoTag}${t._label}</div>
+            <div class="tx-nome">${donoTag}${esc(t._label)}</div>
             <div class="tx-data">${formatarDataTx(t)}${catTag}</div>
           </div>
           <div class="tx-valor ${t._tipo}" style="${cursor}" ${onClickFn}>${sinal}${fmt(t.valor)}</div>
@@ -960,9 +981,9 @@ function renderTodasMovimentacoes(){
     const sinal = t._tipo==='in' ? '+' : '−';
     const catInfo = (t._tipo === 'out' && t.cat) ? (todasAllCats[t.cat] || null) : null;
     const iconContent = catInfo ? catInfo.emoji : (t._tipo==='in' ? '↑' : '↓');
-    const catTag = catInfo ? ` · <span class="cat-inline">${t.cat}</span>` : '';
+    const catTag = catInfo ? ` · <span class="cat-inline">${esc(t.cat)}</span>` : '';
     const dono = isTodos ? membros.find(mm=>mm.id===t.pid) : null;
-    const donoTag = dono ? `<span style="background:${dono.cor}22;color:${dono.cor};padding:1px 7px;border-radius:6px;font-size:10px;font-weight:600;margin-right:6px">${dono.nome}</span>` : '';
+    const donoTag = dono ? `<span style="background:${dono.cor}22;color:${dono.cor};padding:1px 7px;border-radius:6px;font-size:10px;font-weight:600;margin-right:6px">${esc(dono.nome)}</span>` : '';
     const isOwnerOfTx = t.pid === meuPerfil;
     const onClickFn = isOwnerOfTx ? `onclick="abrirModal('${t._tipo}','${t._key}')"` : '';
     const cursor = isOwnerOfTx ? 'cursor:pointer' : '';
@@ -971,7 +992,7 @@ function renderTodasMovimentacoes(){
       <div class="tx-item">
         <div class="tx-icon-circle ${t._tipo}${editableClass}" style="${cursor}" ${onClickFn}>${iconContent}</div>
         <div class="tx-info" style="${cursor}" ${onClickFn}>
-          <div class="tx-nome">${donoTag}${t._label}</div>
+          <div class="tx-nome">${donoTag}${esc(t._label)}</div>
           <div class="tx-data">${formatarDataTx(t)}${catTag}</div>
         </div>
         <div class="tx-valor ${t._tipo}" style="${cursor}" ${onClickFn}>${sinal}${fmt(t.valor)}</div>
@@ -1050,14 +1071,14 @@ function renderEntrouSaiu(tipo){
           const label = isIn ? (m.desc||'Ganho') : (m.nome||'Gasto');
           const catInfo = (!isIn && m.cat) ? (esAllCats[m.cat] || null) : null;
           const iconContent = catInfo ? catInfo.emoji : (isIn ? '↑' : '↓');
-          const catTag = catInfo ? ` · <span class="cat-inline">${m.cat}</span>` : '';
+          const catTag = catInfo ? ` · <span class="cat-inline">${esc(m.cat)}</span>` : '';
           const isOwnerOfTx = m.pid === meuPerfil;
           const onClickFn = `onclick="abrirModal('${isIn?'in':'out'}','${m._key||m.key}')"`;
           return `
             <div class="tx-item" style="cursor:pointer" ${onClickFn}>
               <div class="tx-icon-circle ${isIn?'in':'out'}">${iconContent}</div>
               <div class="tx-info">
-                <div class="tx-nome">${label}</div>
+                <div class="tx-nome">${esc(label)}</div>
                 <div class="tx-data">${formatarDataTx(m)}${catTag}</div>
               </div>
               <div class="tx-valor ${isIn?'in':'out'}">${isIn?'+':'−'}${fmt(m.valor)}</div>
@@ -1316,8 +1337,8 @@ function renderModalCats(){
       : '';
     return `
     <div class="cat-pick ${nome===_modalCat?'active':''}" onclick="selecionarCat('${escapar(nome)}')">
-      <div class="cat-pick-emoji">${info.emoji}</div>
-      <div class="cat-pick-label">${nome}</div>
+      <div class="cat-pick-emoji">${esc(info.emoji)}</div>
+      <div class="cat-pick-label">${esc(nome)}</div>
       ${removerBtn}
     </div>`;
   }).join('') + `
@@ -1376,7 +1397,7 @@ window.confirmarModal = async function(){
     const ts = _modalDataTs || Date.now();
     await push(ref(db,`grupos/${grupoCode}/ganhos`),{
       pid:meuPerfil, desc:desc||'Ganho do dia', valor:val,
-      data:getDataDeTs(ts), mes:getMesDeTs(ts), ts:ts
+      data:getDataDeTs(ts), mes:getMesDeTs(ts), ts:ts, criadoEm:Date.now()
     });
     showToast(_modalDataTs ? 'Entrada lançada (data passada)! 💰' : 'Entrada lançada! 💰');
   } else {
@@ -1384,7 +1405,7 @@ window.confirmarModal = async function(){
     const ts = _modalDataTs || Date.now();
     await push(ref(db,`grupos/${grupoCode}/gastos`),{
       pid:meuPerfil, nome:desc, valor:val, cat:_modalCat,
-      data:getDataDeTs(ts), mes:getMesDeTs(ts), ts:ts
+      data:getDataDeTs(ts), mes:getMesDeTs(ts), ts:ts, criadoEm:Date.now()
     });
     showToast(_modalDataTs ? 'Gasto registrado (data passada)!' : 'Gasto registrado!');
   }
@@ -1445,8 +1466,8 @@ function renderModalCatsFixo(){
       : '';
     return `
     <div class="cat-pick ${nome===_fixoCat?'active':''}" onclick="selecionarCatFixo('${escapar(nome)}')">
-      <div class="cat-pick-emoji">${info.emoji}</div>
-      <div class="cat-pick-label">${nome}</div>
+      <div class="cat-pick-emoji">${esc(info.emoji)}</div>
+      <div class="cat-pick-label">${esc(nome)}</div>
       ${removerBtn}
     </div>`;
   }).join('') + `
@@ -1664,8 +1685,8 @@ function renderResumoGrupo(){
     totalGrupoCaixa  += caixaM;
     return `<div class="resumo-membro-card">
       <div class="rm-header">
-        <div class="rm-avatar" style="background:${m.cor}22;color:${m.cor}">${m.nome[0].toUpperCase()}</div>
-        <div class="rm-nome">${m.nome}</div>
+        <div class="rm-avatar" style="background:${m.cor}22;color:${m.cor}">${esc((m.nome||'?')[0].toUpperCase())}</div>
+        <div class="rm-nome">${esc(m.nome)}</div>
         <div class="rm-saldo" style="color:${saldo>=0?'var(--green)':'var(--red)'}">${fmtSigned(saldo)}</div>
       </div>
       ${incluiFixos ? `<div class="rm-row"><span>Em caixa (início)</span><span style="color:var(--green)">${fmt(caixaM)}</span></div>` : ''}
@@ -1779,8 +1800,8 @@ function renderPizzaChart(elId, gastosArr, fixosArr){
   const legend = items.map(item=>`
     <div class="pizza-legend-item">
       <div class="pizza-legend-dot" style="background:${item.color}"></div>
-      <span class="pizza-legend-emoji">${item.emoji}</span>
-      <span class="pizza-legend-nome">${item.nome}</span>
+      <span class="pizza-legend-emoji">${esc(item.emoji)}</span>
+      <span class="pizza-legend-nome">${esc(item.nome)}</span>
       <span class="pizza-legend-pct">${Math.round(item.pct*100)}%</span>
       <span class="pizza-legend-valor">${fmt(item.valor)}</span>
     </div>`).join('');
@@ -1799,6 +1820,14 @@ function renderPizzaChart(elId, gastosArr, fixosArr){
 function renderFixos(){
   let fixos = filtrarMes(_dados.fixos);
   if(modoApp !== 'solo' && membroAtivo) fixos = fixos.filter(f=>f.pid===membroAtivo);
+  // Ordena pelo DIA de vencimento (1→31), não pela ordem de cadastro.
+  // Contas sem dia definido vão pro fim, mantendo entre si a ordem de criação.
+  fixos = fixos.slice().sort((a,b)=>{
+    const da = (a.dia!=null && a.dia!=='') ? Number(a.dia) : 999;
+    const db = (b.dia!=null && b.dia!=='') ? Number(b.dia) : 999;
+    if(da !== db) return da - db;
+    return (a.ts||0) - (b.ts||0);
+  });
   const pendentes= fixos.filter(f=>!f.pago);
   const pagos    = fixos.filter(f=>f.pago);
   const tPend    = pendentes.reduce((a,b)=>a+(b.valor||0),0);
@@ -1825,9 +1854,9 @@ function renderFixos(){
           </svg>`:''}
         </div>
         <div class="fixo-info" ${editAttr}>
-          <div class="fixo-nome ${f.pago?'riscado':''}">${f.nome}</div>
+          <div class="fixo-nome ${f.pago?'riscado':''}">${esc(f.nome)}</div>
           <div class="fixo-sub">
-            <span style="color:${membro.cor};font-weight:600">${membro.nome}</span>
+            <span style="color:${membro.cor};font-weight:600">${esc(membro.nome)}</span>
             ${f.dia ? ` · <span class="cat-inline">dia ${f.dia}</span>` : ''}
             ${f.pago
               ? '<span class="fixo-status pago-badge">Pago ✓</span>'
@@ -1977,14 +2006,14 @@ function renderHistoricoMovimentacoes(){
     const sinal = isIn ? '+' : '−';
     const arrow = isIn ? '↑' : '↓';
     const dono = isTodos && membros ? membros.find(m=>m.id===d.pid) : null;
-    const donoTag = dono ? `<span style="background:${dono.cor}22;color:${dono.cor};padding:1px 7px;border-radius:6px;font-size:10px;font-weight:600;margin-right:6px">${dono.nome}</span>` : '';
+    const donoTag = dono ? `<span style="background:${dono.cor}22;color:${dono.cor};padding:1px 7px;border-radius:6px;font-size:10px;font-weight:600;margin-right:6px">${esc(dono.nome)}</span>` : '';
     const isOwnerOfTx = d.pid === meuPerfil;
 
     return `
       <div class="tx-item">
         <div class="tx-icon-circle ${isIn?'in':'out'}">${arrow}</div>
         <div class="tx-info">
-          <div class="tx-nome">${donoTag}${label}</div>
+          <div class="tx-nome">${donoTag}${esc(label)}</div>
           <div class="tx-data">${formatarDataTx(d)}</div>
         </div>
         <div class="tx-valor ${isIn?'in':'out'}">${sinal}${fmt(d.valor)}</div>
@@ -1993,34 +2022,8 @@ function renderHistoricoMovimentacoes(){
 }
 
 // ── AÇÕES ──────────────────────────────────────────────────────────────────
-window.addGanho = async function(){
-  const descEl = document.getElementById('inp-ganho-desc');
-  const valEl  = document.getElementById('inp-ganho');
-  const desc   = descEl.value.trim();
-  const val    = parseFloat(valEl.value);
-  if(!val||val<=0){ showToast('Valor inválido','error'); return; }
-  await push(ref(db,`grupos/${grupoCode}/ganhos`),{
-    pid:meuPerfil, desc:desc||'Ganho do dia', valor:val, data:today(), mes:getMesAtivo(), ts:Date.now()
-  });
-  descEl.value=''; valEl.value='';
-  showToast('Ganho lançado!');
-}
-
-window.addGasto = async function(){
-  const val  = parseFloat(document.getElementById('inp-gasto-val').value);
-  const desc = document.getElementById('inp-gasto-desc').value.trim();
-  const cat  = document.getElementById('inp-gasto-cat').value;
-  if(!val||val<=0){ showToast('Informe o valor do gasto','error'); return; }
-  if(!desc){ showToast('Descreva o gasto','error'); return; }
-  await push(ref(db,`grupos/${grupoCode}/gastos`),{
-    pid:meuPerfil, nome:desc, valor:val, cat, data:today(), mes:getMesAtivo(), ts:Date.now()
-  });
-  document.getElementById('inp-gasto-val').value='';
-  document.getElementById('inp-gasto-desc').value='';
-  showToast('Gasto registrado!');
-}
-
-// addFixo legado — substituído por abrirCriarFixo + confirmarFixo (modo create)
+// addGanho/addGasto/addFixo legados removidos — substituídos por abrirModal/confirmarModal
+// e abrirCriarFixo/confirmarFixo (apontavam pra campos do layout antigo que não existem mais).
 
 window.toggleFixo = async function(key, novoPago){
   // No modo Casal/Família, só o dono pode marcar a própria conta como paga.
