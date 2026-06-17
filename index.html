@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Grana Pro"/>
 <link rel="manifest" href="manifest.json"/>
 <link rel="apple-touch-icon" href="icon.svg"/>
+<script>try{if(localStorage.getItem('granapro_tema')==='claro')document.documentElement.setAttribute('data-theme','light');}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet"/>
@@ -739,6 +740,20 @@ const CAT_INFO = {
   'Outros'     :{emoji:'📦', color:'#8a7d65'}
 };
 
+// Paleta curada de cores de categoria + helpers.
+const CORES_CAT = ['#ef4444','#f97316','#d4af37','#22c55e','#14b8a6','#3b82f6','#8b5cf6','#ec4899','#6b7280'];
+function hexA(hex, a){
+  const h = String(hex||'#6b7280').replace('#','');
+  if(h.length!==6) return `rgba(107,114,128,${a})`;
+  const r=parseInt(h.slice(0,2),16), g=parseInt(h.slice(2,4),16), b=parseInt(h.slice(4,6),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function corAutoPorNome(nome){ let s=0; for(const c of String(nome)) s=(s+c.charCodeAt(0))%9999; return CORES_CAT[s % CORES_CAT.length]; }
+function proximaCorLivre(){
+  const usadas = new Set(Object.values(getAllCats()).map(c=>c.color));
+  return CORES_CAT.find(c=>!usadas.has(c)) || CORES_CAT[usadas.size % CORES_CAT.length];
+}
+
 // Mapa palavra-chave → categoria (PT-BR, comparado sem acento/minúsculo). Ampliável na mão.
 const CAT_KEYWORDS = {
   'Transporte': ['uber','99','taxi','gasolina','combustivel','etanol','alcool','diesel','onibus','metro','passagem','estacionamento','pedagio','moto','corrida'],
@@ -1001,7 +1016,7 @@ function renderMeu(){
         const editableClass = isOwnerOfTx ? ' editable' : '';
         return `
           <div class="tx-item">
-            <div class="tx-icon-circle ${t._tipo}${editableClass}" style="${cursor}" ${onClickFn}>${iconContent}</div>
+            <div class="tx-icon-circle ${t._tipo}${editableClass}" style="${catInfo?`background:${hexA(catInfo.color,0.20)};`:''}${cursor}" ${onClickFn}>${iconContent}</div>
             <div class="tx-info" style="${cursor}" ${onClickFn}>
               <div class="tx-nome">${donoTag}${esc(t._label)}</div>
               <div class="tx-data">${formatarDataTx(t)}${catTag}</div>
@@ -1069,7 +1084,7 @@ function renderTodasMovimentacoes(){
     const editableClass = isOwnerOfTx ? ' editable' : '';
     return `
       <div class="tx-item">
-        <div class="tx-icon-circle ${t._tipo}${editableClass}" style="${cursor}" ${onClickFn}>${iconContent}</div>
+        <div class="tx-icon-circle ${t._tipo}${editableClass}" style="${catInfo?`background:${hexA(catInfo.color,0.20)};`:''}${cursor}" ${onClickFn}>${iconContent}</div>
         <div class="tx-info" style="${cursor}" ${onClickFn}>
           <div class="tx-nome">${donoTag}${esc(t._label)}</div>
           <div class="tx-data">${formatarDataTx(t)}${catTag}</div>
@@ -1411,16 +1426,31 @@ window.fecharModal = function(){
   _fecharOverlay('modal-tx');
 }
 
+window.setTema = function(t){
+  if(t==='claro') document.documentElement.setAttribute('data-theme','light');
+  else document.documentElement.removeAttribute('data-theme');
+  try{ localStorage.setItem('granapro_tema', t==='claro'?'claro':'escuro'); }catch(e){}
+  const mc = document.querySelector('meta[name="theme-color"]');
+  if(mc) mc.setAttribute('content', t==='claro' ? '#f4ede0' : '#070707');
+  _syncTemaUI();
+  if(typeof renderTudo==='function') renderTudo();
+};
+function _syncTemaUI(){
+  const claro = document.documentElement.getAttribute('data-theme')==='light';
+  const bc=document.getElementById('tema-claro'), be=document.getElementById('tema-escuro');
+  if(bc&&be){ bc.classList.toggle('ativo',claro); be.classList.toggle('ativo',!claro); }
+}
+
 function getAllCats(){
   const result = {};
   // Padrão, aplicando override de emoji (categoriasMeta) se houver.
   Object.entries(CAT_INFO).forEach(([nome,info])=>{
     const ov = _catMeta[nome];
-    result[nome] = {...info, emoji: (ov && ov.emoji) ? ov.emoji : info.emoji};
+    result[nome] = {...info, emoji: (ov && ov.emoji) ? ov.emoji : info.emoji, color: (ov && ov.color) ? ov.color : info.color};
   });
   // Categorias criadas pelo usuário.
   _customCats.forEach(c=>{
-    result[c.nome] = {emoji:c.emoji, color:c.color||'#d4af37', custom:true, _key:c._key};
+    result[c.nome] = {emoji:c.emoji, color:c.color||corAutoPorNome(c.nome), custom:true, _key:c._key};
   });
   return result;
 }
@@ -1437,7 +1467,7 @@ function renderModalCats(){
     cont.className = 'modal-cats-recolhido';
     cont.innerHTML = `
       <div class="cat-chip-sel" onclick="expandirCats()">
-        <span class="cat-chip-emoji">${esc(info.emoji)}</span>
+        <span class="cat-chip-emoji" style="background:${hexA(info.color||'#6b7280',0.20)}">${esc(info.emoji)}</span>
         <span class="cat-chip-nome">${esc(_modalCat)}</span>
       </div>
       <button type="button" class="cat-trocar-btn" onclick="expandirCats()">Trocar ▾</button>`;
@@ -1448,7 +1478,7 @@ function renderModalCats(){
   cont.className = 'modal-cats';
   cont.innerHTML = Object.entries(all).map(([nome,inf])=>`
     <div class="cat-pick ${nome===_modalCat?'active':''}" onclick="selecionarCat('${escapar(nome)}')">
-      <div class="cat-pick-emoji">${esc(inf.emoji)}</div>
+      <div class="cat-pick-emoji" style="background:${hexA(inf.color||'#6b7280',0.20)}">${esc(inf.emoji)}</div>
       <div class="cat-pick-label">${esc(nome)}</div>
     </div>`).join('') + `
     <div class="cat-pick cat-nova" onclick="criarCategoria('tx')">
@@ -1472,6 +1502,7 @@ window.selecionarCat = function(nome){
 
 // Estado do modal categoria. _catEdit = null (nova) | {nome, emoji, _key|null, custom}
 let _catEmoji = '📦';
+let _catColor = '#6b7280';
 let _catEdit  = null;
 let _catOrigem = 'tx'; // 'tx' | 'fixo' | 'gerenciar'
 
@@ -1485,6 +1516,7 @@ window.abrirModalCategoria = function(modo, origem, cat){
   if(modo === 'nova'){
     _catEdit = null;
     _catEmoji = '📦';
+    _catColor = proximaCorLivre();
     document.getElementById('modal-cat-titulo').textContent = 'Nova categoria';
     document.getElementById('modal-cat-nome').value = '';
     document.getElementById('modal-cat-nome').disabled = false;
@@ -1492,12 +1524,15 @@ window.abrirModalCategoria = function(modo, origem, cat){
   } else {
     _catEdit = cat; // {nome, emoji, custom, _key}
     _catEmoji = cat.emoji || '📦';
+    _catColor = cat.color || corAutoPorNome(cat.nome);
     document.getElementById('modal-cat-titulo').textContent = cat.custom ? 'Editar categoria' : 'Editar emoji';
     document.getElementById('modal-cat-nome').value = cat.nome;
     document.getElementById('modal-cat-nome').disabled = !cat.custom;
     document.getElementById('modal-cat-nome-label').style.opacity = cat.custom ? '1' : '0.4';
   }
   document.getElementById('modal-cat-emoji-btn').textContent = _catEmoji;
+  document.getElementById('modal-cat-emoji-btn').style.background = hexA(_catColor,0.22);
+  renderCatCores();
   document.getElementById('modal-cat').classList.add('show');
 };
 
@@ -1506,6 +1541,15 @@ window.trocarEmojiCat = function(){
     _catEmoji = e;
     document.getElementById('modal-cat-emoji-btn').textContent = e;
   });
+};
+
+function renderCatCores(){
+  const cont = document.getElementById('modal-cat-cores'); if(!cont) return;
+  cont.innerHTML = CORES_CAT.map(c=>`<span class="cat-cor ${c===_catColor?'ativo':''}" style="background:${c}" onclick="selecionarCorCat('${c}')"></span>`).join('');
+}
+window.selecionarCorCat = function(c){
+  _catColor = c; renderCatCores();
+  document.getElementById('modal-cat-emoji-btn').style.background = hexA(c,0.22);
 };
 
 window.fecharModalCat = function(){ _catEdit = null; _fecharOverlay('modal-cat'); };
@@ -1517,18 +1561,18 @@ window.salvarCategoria = async function(){
 
   if(!_catEdit){
     if(all[nome]){ showToast('Já existe categoria com esse nome','error'); return; }
-    await push(ref(db,`grupos/${grupoCode}/categorias`),{nome, emoji:_catEmoji, color:'#d4af37'});
+    await push(ref(db,`grupos/${grupoCode}/categorias`),{nome, emoji:_catEmoji, color:_catColor});
     if(_catOrigem === 'tx'){ _modalCat = nome; _catTocadaManual = true; renderModalCats(); }
     else if(_catOrigem === 'fixo'){ _fixoCat = nome; renderModalCatsFixo(); }
     showToast('Categoria criada! ✓');
   } else if(_catEdit.custom){
     const nomeAntigo = _catEdit.nome;
     if(nome !== nomeAntigo && all[nome]){ showToast('Já existe categoria com esse nome','error'); return; }
-    await update(ref(db,`grupos/${grupoCode}/categorias/${_catEdit._key}`),{nome, emoji:_catEmoji});
+    await update(ref(db,`grupos/${grupoCode}/categorias/${_catEdit._key}`),{nome, emoji:_catEmoji, color:_catColor});
     if(nome !== nomeAntigo) await migrarNomeCategoria(nomeAntigo, nome);
     showToast('Categoria atualizada! ✓');
   } else {
-    await update(ref(db,`grupos/${grupoCode}/categoriasMeta/${_catEdit.nome}`),{emoji:_catEmoji});
+    await update(ref(db,`grupos/${grupoCode}/categoriasMeta/${_catEdit.nome}`),{emoji:_catEmoji, color:_catColor});
     showToast('Emoji atualizado! ✓');
   }
   fecharModalCat();
@@ -1567,7 +1611,7 @@ function renderGerenciarCats(){
          <span class="ger-tag">padrão</span>`;
     return `
       <div class="ger-item">
-        <span class="ger-emoji" onclick="abrirModalCategoria('editar','gerenciar', JSON.parse(decodeURIComponent('${payload}')))">${esc(info.emoji)}</span>
+        <span class="ger-emoji" style="background:${hexA(info.color,0.20)}" onclick="abrirModalCategoria('editar','gerenciar', JSON.parse(decodeURIComponent('${payload}')))">${esc(info.emoji)}</span>
         <span class="ger-nome">${esc(nome)}</span>
         ${acoes}
       </div>`;
@@ -2482,6 +2526,7 @@ window.abrirConfiguracoes = function(){
   const code = localStorage.getItem('grana_code') || '';
   document.getElementById('config-codigo').textContent = code;
   document.getElementById('modal-config').classList.add('show');
+  _syncTemaUI();
 }
 window.fecharConfiguracoes = function(){
   _fecharOverlay('modal-config');
@@ -2689,6 +2734,23 @@ init();
   --radius:16px;
   --radius-sm:10px;
 }
+
+html[data-theme="light"]{
+  --bg:#f4ede0; --surface:#fbf6ec; --surface2:#ffffff; --surface3:#efe6d5;
+  --border:rgba(168,138,32,0.14); --border2:rgba(168,138,32,0.28);
+  --text:#241f15; --text2:#7c6f57; --text3:#a99f88;
+  --green:#16a34a; --green-bg:rgba(22,163,74,0.10);
+  --red:#dc2626; --red-bg:rgba(220,38,38,0.10);
+  --gold:#b8941f; --gold-light:#d4af37; --gold-dark:#8a6f15;
+  --gold-bg:rgba(212,175,55,0.16); --gold-border:rgba(168,138,32,0.32);
+  --orange:#ea6a0e;
+}
+
+.tema-pill{flex:1;padding:10px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-size:14px;font-weight:600;cursor:pointer}
+.tema-pill.ativo{border-color:var(--gold-border);color:var(--gold);background:var(--gold-bg)}
+.cat-cores{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:0 0 14px}
+.cat-cor{width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid transparent}
+.cat-cor.ativo{border-color:var(--text)}
 
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;overscroll-behavior:none;}
@@ -4043,6 +4105,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         style="font-size:38px;line-height:1;width:78px;height:78px;border-radius:18px;background:var(--surface2);border:1px solid var(--border);cursor:pointer">＋</button>
       <div style="font-size:11px;color:var(--text3)">toque pra escolher o emoji</div>
     </div>
+    <div class="cat-cores" id="modal-cat-cores"></div>
     <label class="modal-label" id="modal-cat-nome-label">Nome</label>
     <input type="text" class="modal-input" id="modal-cat-nome" placeholder="Ex: Pet, Investimentos..."/>
     <div class="modal-actions">
@@ -4157,6 +4220,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
   <div class="modal-card">
     <div class="modal-handle"></div>
     <div class="modal-titulo" style="color:var(--gold)">⚙️ Configurações</div>
+
+    <div style="display:flex;gap:8px;margin:14px 0 4px">
+      <button class="tema-pill" id="tema-claro" onclick="setTema('claro')">☀️ Claro</button>
+      <button class="tema-pill" id="tema-escuro" onclick="setTema('escuro')">🌙 Escuro</button>
+    </div>
 
     <div style="background:var(--surface2);border-radius:12px;padding:14px 16px;margin:16px 0 8px;border:1px solid var(--border)">
       <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-weight:600">Meu código de acesso</div>
