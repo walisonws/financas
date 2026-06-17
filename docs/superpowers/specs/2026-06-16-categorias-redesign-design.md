@@ -1,8 +1,13 @@
-# Redesign das Categorias — Grana Pro
+# Melhorias de UX — Grana Pro (categorias, lista de hoje, confirmar exclusão)
 
 **Data:** 2026-06-16
 **Arquivo afetado:** `index.html` (app single-page)
-**Origem:** usuário acha as categorias desagradáveis de usar — emojis ruins e a grade que acumula/bagunça a tela.
+**Origem:** três melhorias pedidas no mesmo lote:
+1. **Categorias** desagradáveis de usar — emojis ruins e grade que acumula/bagunça a tela.
+2. **Últimas movimentações** ocupam muito espaço — encurtar pra só as de hoje, resto em "ver mais".
+3. **Exclusão sem confirmação** — esbarrar sem querer apaga; falta uma caixa "tem certeza?".
+
+> Vira **um único plano de implementação**. "Design" §1–5 = categorias; "Lista de hoje" e "Confirmar exclusão" = as outras duas.
 
 ## Problema
 
@@ -134,6 +139,37 @@ Mudança — permitir editar o emoji das **padrão** sem quebrar gastos antigos:
 - Onde `onValue(... /categorias)` carrega (~553) — carregar também `categoriasMeta`.
 - Novos: `sugerirCategoria(desc)`, seletor de emoji, modal "Gerenciar categorias", `renomearCategoria()`, `setEmojiCategoria()`.
 
+## Lista de movimentações = só de hoje (aba Início)
+
+Hoje `renderInicio` monta as últimas movimentações com `.slice(0, isTodos ? 30 : 6)` — conta itens, não dias. Já existe a infra de "ver mais": botão **"Ver todas ›"** → `toggleTodasMovimentacoes()` troca o card `card-tx` pelo `card-todas-tx` (lista completa do mês via `renderTodasMovimentacoes`).
+
+Mudança:
+
+- **Mês atual selecionado:** a lista de "Últimas movimentações" mostra **só as de hoje** (filtra por `t.data === hojeStr`, comparando com a data real de hoje).
+  - Se **não houver nada hoje**, mostrar um aviso curto ("Nada lançado hoje ainda") + o botão de ver mais — não esconder o card.
+- **Mês passado selecionado (setinha):** "hoje" não existe nesse mês → cai no comportamento atual (mostra as mais recentes do mês, cap pequeno ~6). Previsível ao navegar no passado.
+- O botão **"Ver todas ›"** continua sendo o "ver mais" (abre a lista completa do mês). Opcional: rotular com a contagem do que está oculto, ex.: "Ver mais (8) ›".
+- Modo **Todos** (casal/família): mesma regra — só de hoje no mês atual.
+
+> Implementação: ajustar só a construção de `tx` em `renderInicio` (o trecho do `.slice`) + o estado vazio. A lista completa (`renderTodasMovimentacoes`) não muda.
+
+## Confirmar exclusão (caixa bonita no estilo do app)
+
+Hoje `delGanho` / `delGasto` / `delFixo` / `delHistorico` (~linhas 2043–2118) apagam **na hora**: agendam `remove()` em 4s, marcam em `_pendingDeletes`, renderizam e mostram toast "Desfazer". Sem confirmação. O `×` e o **swipe-to-delete** caem nessas mesmas funções → é onde se apaga sem querer.
+
+Mudança:
+
+- Novo helper reutilizável de confirmação, **modal estilizado no tema do app** (não `confirm()` nativo): `confirmarAcao({ titulo, msg, textoBotao, perigo, onConfirm })`.
+  - Botões: **Cancelar** + **Apagar** (destrutivo, vermelho). Tocar fora = cancela.
+- Aplicar **antes** de toda exclusão (decisão "tudo que apaga"):
+  - Movimentação (ganho/gasto): "Apagar este lançamento?" com o nome do item.
+  - Conta fixa: "Apagar esta conta fixa?" com o nome.
+  - Arquivo do histórico: "Apagar o arquivo de {mês}?".
+- **Manter o Desfazer** (decisão "os dois"): depois do usuário confirmar, segue o fluxo atual — exclusão otimista + toast "Desfazer" 4s. Dupla rede: confirmação evita o acidente, Desfazer cobre o arrependimento.
+- O swipe-to-delete passa a cair na confirmação também (mesmas funções `del*`), cobrindo o caso principal de toque acidental.
+
+> Implementação: um helper/modal de confirmação + envolver o início de cada `del*` com `confirmarAcao(... , onConfirm: () => { /* corpo atual */ })`. O corpo atual (timer + `_pendingDeletes` + toast) não muda.
+
 ## Fora de escopo (YAGNI)
 
 - Cor por categoria (toda criada segue dourada por ora).
@@ -148,4 +184,6 @@ Mudança — permitir editar o emoji das **padrão** sem quebrar gastos antigos:
 - "Trocar" expande a grade; escolher recolhe.
 - ＋ Nova com seletor visual de emoji (sem prompt).
 - Gerenciar: trocar emoji de uma padrão (persiste); renomear uma criada migra os gastos vigentes; apagar criada volta gastos pra Outros.
+- **Lista de hoje:** no mês atual, "Últimas movimentações" mostra só as de hoje; sem nada hoje → aviso + ver mais; "Ver todas" abre a lista completa; em mês passado, mostra as recentes daquele mês.
+- **Confirmar exclusão:** `×`/swipe em ganho, gasto, conta fixa e arquivo do histórico abrem a caixa estilizada; cancelar não apaga; confirmar apaga e ainda mostra o "Desfazer" 4s.
 - Sem erros no console (preview).
