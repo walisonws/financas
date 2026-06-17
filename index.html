@@ -711,6 +711,36 @@ const CAT_INFO = {
   'Outros'     :{emoji:'💼', color:'#8a7d65'}
 };
 
+// Mapa palavra-chave → categoria (PT-BR, comparado sem acento/minúsculo). Ampliável na mão.
+const CAT_KEYWORDS = {
+  'Transporte': ['uber','99','taxi','gasolina','combustivel','etanol','alcool','diesel','onibus','metro','passagem','estacionamento','pedagio','moto','corrida'],
+  'Alimentação':['mercado','supermercado','ifood','rappi','almoco','janta','jantar','lanche','padaria','restaurante','comida','cafe','pizza','feira','acougue','hortifruti'],
+  'Saúde':      ['farmacia','drogaria','remedio','medico','consulta','dentista','exame','plano','academia','psicologo','hospital'],
+  'Lazer':      ['cinema','bar','balada','netflix','spotify','show','viagem','passeio','game','hbo','disney','jogo'],
+  'Compras':    ['roupa','sapato','tenis','calca','shopping','presente','amazon','shopee','mercadolivre','loja'],
+  'Moradia':    ['aluguel','luz','energia','agua','internet','wifi','gas','condominio','faxina','movel','iptu'],
+  'Educação':   ['curso','livro','faculdade','escola','mensalidade','material','apostila','aula']
+};
+
+// Normaliza texto pra comparar (minúsculo, sem acento).
+function normalizarTxt(s){
+  return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+}
+
+// Sugere categoria pela descrição digitada. Sem match → categoria mais usada → 'Outros'.
+function sugerirCategoria(desc){
+  const txt = normalizarTxt(desc);
+  if(txt){
+    for(const [cat, palavras] of Object.entries(CAT_KEYWORDS)){
+      if(palavras.some(p => txt.includes(p))) return cat;
+    }
+  }
+  const freq = {};
+  (_dados.gastos||[]).forEach(g=>{ if(g.cat) freq[g.cat]=(freq[g.cat]||0)+1; });
+  const top = Object.entries(freq).sort((a,b)=>b[1]-a[1])[0];
+  return top ? top[0] : 'Outros';
+}
+
 function mensagemMotivacional(saldo, totalGanho){
   if(totalGanho===0 && saldo===0) return {txt:'Comece lançando uma entrada', tipo:''};
   if(saldo > 0){
