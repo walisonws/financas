@@ -558,6 +558,7 @@ function escutarDados(){
     // Re-renderiza pickers se modais estiverem abertos
     if(document.getElementById('modal-tx').classList.contains('show')) renderModalCats();
     if(document.getElementById('modal-fixo').classList.contains('show')) renderModalCatsFixo();
+    if(document.getElementById('modal-gerenciar').classList.contains('show')) renderGerenciarCats();
   });
   onValue(ref(db,`grupos/${grupoCode}/categoriasMeta`), snap=>{
     _catMeta = snap.val() || {};
@@ -1505,6 +1506,36 @@ async function migrarNomeCategoria(antigo, novo){
   if(_modalCat===antigo) _modalCat=novo;
   if(_fixoCat ===antigo) _fixoCat =novo;
   if(Object.keys(updates).length) await update(ref(db,`grupos/${grupoCode}`), updates);
+}
+
+// ── GERENCIAR CATEGORIAS ────────────────────────────────────────────────────
+window.abrirGerenciarCats = function(){
+  if(!isPro()){ abrirModalPro('feature'); return; }
+  renderGerenciarCats();
+  document.getElementById('modal-gerenciar').classList.add('show');
+};
+window.fecharGerenciar = function(){ _fecharOverlay('modal-gerenciar'); };
+
+function renderGerenciarCats(){
+  const cont = document.getElementById('ger-lista');
+  if(!cont) return;
+  const all = getAllCats();
+  const escapar = s => String(s).replace(/'/g,"\\'");
+  cont.innerHTML = Object.entries(all).map(([nome,info])=>{
+    const cat = {nome, emoji:info.emoji, custom:!!info.custom, _key:info._key||null};
+    const payload = encodeURIComponent(JSON.stringify(cat));
+    const acoes = info.custom
+      ? `<button class="ger-acao" onclick="abrirModalCategoria('editar','gerenciar', JSON.parse(decodeURIComponent('${payload}')))">Editar</button>
+         <button class="ger-acao del" onclick="removerCategoria('${info._key}','${escapar(nome)}')">Apagar</button>`
+      : `<button class="ger-acao" onclick="abrirModalCategoria('editar','gerenciar', JSON.parse(decodeURIComponent('${payload}')))">Emoji</button>
+         <span class="ger-tag">padrão</span>`;
+    return `
+      <div class="ger-item">
+        <span class="ger-emoji" onclick="abrirModalCategoria('editar','gerenciar', JSON.parse(decodeURIComponent('${payload}')))">${esc(info.emoji)}</span>
+        <span class="ger-nome">${esc(nome)}</span>
+        ${acoes}
+      </div>`;
+  }).join('');
 }
 
 window.removerCategoria = async function(key, nome){
@@ -3154,6 +3185,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .cat-chip-emoji{font-size:18px;line-height:1;}
 .cat-chip-nome{font-size:14px;font-weight:600;color:var(--text);}
 .cat-trocar-btn{background:transparent;border:1px solid var(--border);color:var(--gold);border-radius:10px;padding:9px 12px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;}
+.ger-lista{display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto;margin-bottom:14px;}
+.ger-item{display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:10px 12px;}
+.ger-emoji{font-size:22px;line-height:1;cursor:pointer;}
+.ger-nome{flex:1;font-size:14px;color:var(--text);}
+.ger-tag{font-size:10px;color:var(--text3);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:1px 6px;}
+.ger-acao{background:transparent;border:1px solid var(--border);color:var(--gold);border-radius:8px;padding:6px 9px;font-size:12px;cursor:pointer;font-family:inherit;}
+.ger-acao.del{color:var(--red);}
 .cat-pick-emoji{font-size:18px;line-height:1;}
 .cat-pick-label{font-size:9.5px;color:var(--text2);font-weight:600;}
 .cat-pick.active .cat-pick-label{color:var(--gold);}
@@ -3941,6 +3979,19 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
     <div class="modal-actions">
       <button class="modal-btn modal-btn-cancel" onclick="fecharModalCat()">Cancelar</button>
       <button class="modal-btn modal-btn-confirm in" id="modal-cat-salvar" onclick="salvarCategoria()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-gerenciar" onclick="if(event.target===this)fecharGerenciar()">
+  <div class="modal-card" style="max-width:380px">
+    <div class="modal-handle"></div>
+    <div class="modal-titulo">⚙️ Gerenciar categorias</div>
+    <div class="modal-sub">Toque pra trocar o emoji. Renomear/apagar só nas que você criou.</div>
+    <div class="ger-lista" id="ger-lista"></div>
+    <div class="modal-actions">
+      <button class="modal-btn modal-btn-cancel" onclick="fecharGerenciar()">Fechar</button>
+      <button class="modal-btn modal-btn-confirm in" onclick="criarCategoria('gerenciar')">＋ Nova</button>
     </div>
   </div>
 </div>
