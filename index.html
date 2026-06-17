@@ -943,46 +943,67 @@ function renderMeu(){
   // ÚLTIMAS MOVIMENTAÇÕES — combina ganhos+gastos por ts desc
   // Em modo Todos mostra mais (15) e identifica o membro
   const txCard = document.getElementById('card-tx');
-  const tx = [
+  const todasTx = [
     ...ganhos.map(g=>({...g, _tipo:'in', _label:g.desc||'Ganho'})),
     ...gastos.map(g=>({...g, _tipo:'out', _label:g.nome||'Gasto'}))
-  ].sort((a,b)=>(b.ts||0)-(a.ts||0)).slice(0, isTodos ? 30 : 6);
+  ].sort((a,b)=>(b.ts||0)-(a.ts||0));
 
-  if(tx.length > 0){
-    const txAllCats = getAllCats();
-    document.getElementById('tx-lista').innerHTML = tx.map(t=>{
-      const sinal = t._tipo==='in' ? '+' : '−';
-      const catInfo = (t._tipo === 'out' && t.cat) ? (txAllCats[t.cat] || null) : null;
-      const iconContent = catInfo ? catInfo.emoji : (t._tipo==='in' ? '↑' : '↓');
-      const catTag = catInfo ? ` · <span class="cat-inline">${esc(t.cat)}</span>` : '';
-      const dono = isTodos ? membros.find(mm=>mm.id===t.pid) : null;
-      const donoTag = dono ? `<span style="background:${dono.cor}22;color:${dono.cor};padding:1px 7px;border-radius:6px;font-size:10px;font-weight:600;margin-right:6px">${esc(dono.nome)}</span>` : '';
-      const isOwnerOfTx = t.pid === meuPerfil;
-      const onClickFn = isOwnerOfTx ? `onclick="abrirModal('${t._tipo}','${t._key}')"` : '';
-      const cursor = isOwnerOfTx ? 'cursor:pointer' : '';
-      const editableClass = isOwnerOfTx ? ' editable' : '';
-      return `
-        <div class="tx-item">
-          <div class="tx-icon-circle ${t._tipo}${editableClass}" style="${cursor}" ${onClickFn}>${iconContent}</div>
-          <div class="tx-info" style="${cursor}" ${onClickFn}>
-            <div class="tx-nome">${donoTag}${esc(t._label)}</div>
-            <div class="tx-data">${formatarDataTx(t)}${catTag}</div>
-          </div>
-          <div class="tx-valor ${t._tipo}" style="${cursor}" ${onClickFn}>${sinal}${fmt(t.valor)}</div>
-          ${isOwnerOfTx?`<button class="tx-del" onclick="event.stopPropagation();${t._tipo==='in'?'delGanho':'delGasto'}('${t._key}')">×</button>`:''}
-        </div>`;
-    }).join('');
-    txCard.style.display = 'block';
+  // Mês atual: só as de hoje. Mês passado: as mais recentes daquele mês (hoje não existe lá).
+  const ehMesAtual = getMesAtivo() === getML();
+  let tx;
+  if(ehMesAtual){
+    const hojeStr = new Date().toDateString();
+    tx = todasTx.filter(t => t.ts && new Date(t.ts).toDateString() === hojeStr);
   } else {
+    tx = todasTx.slice(0, isTodos ? 30 : 6);
+  }
+  const ocultas = Math.max(0, todasTx.length - tx.length);
+
+  // Atualiza o rótulo do botão "Ver todas" com a contagem do que está oculto.
+  const verBtn = document.getElementById('btn-ver-todas');
+  if(verBtn) verBtn.textContent = ocultas > 0 ? `Ver mais (${ocultas}) ›` : 'Ver todas ›';
+
+  const emptyEl = document.getElementById('empty-state');
+  if(todasTx.length === 0){
+    // Mês realmente vazio → guia de estado vazio.
     txCard.style.display = 'none';
+    if(emptyEl) emptyEl.style.display = 'block';
+  } else {
+    txCard.style.display = 'block';
+    if(emptyEl) emptyEl.style.display = 'none';
+    if(tx.length > 0){
+      const txAllCats = getAllCats();
+      document.getElementById('tx-lista').innerHTML = tx.map(t=>{
+        const sinal = t._tipo==='in' ? '+' : '−';
+        const catInfo = (t._tipo === 'out' && t.cat) ? (txAllCats[t.cat] || null) : null;
+        const iconContent = catInfo ? catInfo.emoji : (t._tipo==='in' ? '↑' : '↓');
+        const catTag = catInfo ? ` · <span class="cat-inline">${esc(t.cat)}</span>` : '';
+        const dono = isTodos ? membros.find(mm=>mm.id===t.pid) : null;
+        const donoTag = dono ? `<span style="background:${dono.cor}22;color:${dono.cor};padding:1px 7px;border-radius:6px;font-size:10px;font-weight:600;margin-right:6px">${esc(dono.nome)}</span>` : '';
+        const isOwnerOfTx = t.pid === meuPerfil;
+        const onClickFn = isOwnerOfTx ? `onclick="abrirModal('${t._tipo}','${t._key}')"` : '';
+        const cursor = isOwnerOfTx ? 'cursor:pointer' : '';
+        const editableClass = isOwnerOfTx ? ' editable' : '';
+        return `
+          <div class="tx-item">
+            <div class="tx-icon-circle ${t._tipo}${editableClass}" style="${cursor}" ${onClickFn}>${iconContent}</div>
+            <div class="tx-info" style="${cursor}" ${onClickFn}>
+              <div class="tx-nome">${donoTag}${esc(t._label)}</div>
+              <div class="tx-data">${formatarDataTx(t)}${catTag}</div>
+            </div>
+            <div class="tx-valor ${t._tipo}" style="${cursor}" ${onClickFn}>${sinal}${fmt(t.valor)}</div>
+            ${isOwnerOfTx?`<button class="tx-del" onclick="event.stopPropagation();${t._tipo==='in'?'delGanho':'delGasto'}('${t._key}')">×</button>`:''}
+          </div>`;
+      }).join('');
+    } else {
+      // Mês atual com movimentos, mas nada hoje.
+      document.getElementById('tx-lista').innerHTML =
+        '<div class="empty" style="padding:16px;text-align:center;color:var(--text3);font-size:13px">Nada lançado hoje ainda</div>';
+    }
   }
 
   // SWIPE-TO-DELETE nas movimentações
   attachSwipe('tx-lista');
-
-  // ESTADO VAZIO — guia quando não há lançamentos no mês
-  const emptyEl = document.getElementById('empty-state');
-  if(emptyEl) emptyEl.style.display = tx.length === 0 ? 'block' : 'none';
 
   // META MENSAL
   renderMeta();
@@ -3576,7 +3597,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 
       <!-- ÚLTIMAS MOVIMENTAÇÕES -->
       <div id="card-tx" style="display:none">
-        <div class="section-titulo">⏱️ Últimas movimentações <button class="expandir-btn" onclick="toggleTodasMovimentacoes()" style="background:var(--gold-bg);border:1px solid var(--border2);color:var(--gold);cursor:pointer;font-size:11px;font-weight:600;padding:3px 10px;border-radius:8px;margin-left:auto;font-family:inherit">Ver todas ›</button></div>
+        <div class="section-titulo">⏱️ Últimas movimentações <button class="expandir-btn" id="btn-ver-todas" onclick="toggleTodasMovimentacoes()" style="background:var(--gold-bg);border:1px solid var(--border2);color:var(--gold);cursor:pointer;font-size:11px;font-weight:600;padding:3px 10px;border-radius:8px;margin-left:auto;font-family:inherit">Ver todas ›</button></div>
         <div class="tx-card">
           <div id="tx-lista"></div>
         </div>
