@@ -1275,6 +1275,8 @@ function getDataDeTs(ts){
 
 let _modalCat  = 'Alimentação';
 let _modalEditKey = null;
+let _modalCatExpandido = false; // grade de categorias aberta?
+let _catTocadaManual = false;   // usuário escolheu categoria na mão neste lançamento?
 
 window.abrirModal = function(tipo, editKey){
   // Checa limite de lançamentos no Free
@@ -1401,19 +1403,78 @@ window.selecionarCat = function(nome){
   renderModalCats();
 }
 
-window.criarCategoria = async function(origem){
+// Estado do modal categoria. _catEdit = null (nova) | {nome, emoji, _key|null, custom}
+let _catEmoji = '📦';
+let _catEdit  = null;
+let _catOrigem = 'tx'; // 'tx' | 'fixo' | 'gerenciar'
+
+window.criarCategoria = function(origem){
   if(!isPro()){ abrirModalPro('feature'); return; }
-  const emoji = (prompt('Digite um emoji pra categoria (ex: 💼 🏋️ 💳):') || '').trim();
-  if(!emoji) return;
-  const nome  = (prompt('Digite o nome da categoria:') || '').trim();
-  if(!nome) return;
-  // Evita duplicada
+  abrirModalCategoria('nova', origem || 'tx');
+};
+
+window.abrirModalCategoria = function(modo, origem, cat){
+  _catOrigem = origem || 'tx';
+  if(modo === 'nova'){
+    _catEdit = null;
+    _catEmoji = '📦';
+    document.getElementById('modal-cat-titulo').textContent = 'Nova categoria';
+    document.getElementById('modal-cat-nome').value = '';
+    document.getElementById('modal-cat-nome').disabled = false;
+    document.getElementById('modal-cat-nome-label').style.opacity = '1';
+  } else {
+    _catEdit = cat; // {nome, emoji, custom, _key}
+    _catEmoji = cat.emoji || '📦';
+    document.getElementById('modal-cat-titulo').textContent = cat.custom ? 'Editar categoria' : 'Editar emoji';
+    document.getElementById('modal-cat-nome').value = cat.nome;
+    document.getElementById('modal-cat-nome').disabled = !cat.custom;
+    document.getElementById('modal-cat-nome-label').style.opacity = cat.custom ? '1' : '0.4';
+  }
+  document.getElementById('modal-cat-emoji-btn').textContent = _catEmoji;
+  document.getElementById('modal-cat').classList.add('show');
+};
+
+window.trocarEmojiCat = function(){
+  escolherEmoji(e=>{
+    _catEmoji = e;
+    document.getElementById('modal-cat-emoji-btn').textContent = e;
+  });
+};
+
+window.fecharModalCat = function(){ _catEdit = null; _fecharOverlay('modal-cat'); };
+
+window.salvarCategoria = async function(){
+  const nome = (document.getElementById('modal-cat-nome').value || '').trim();
+  if(!nome){ showToast('Digite o nome da categoria','error'); return; }
   const all = getAllCats();
-  if(all[nome]){ showToast('Já existe categoria com esse nome','error'); return; }
-  await push(ref(db,`grupos/${grupoCode}/categorias`),{nome, emoji, color:'#d4af37'});
-  if(origem === 'tx'){ _modalCat = nome; renderModalCats(); }
-  else                { _fixoCat  = nome; renderModalCatsFixo(); }
-  showToast('Categoria criada! ✓');
+
+  if(!_catEdit){
+    if(all[nome]){ showToast('Já existe categoria com esse nome','error'); return; }
+    await push(ref(db,`grupos/${grupoCode}/categorias`),{nome, emoji:_catEmoji, color:'#d4af37'});
+    if(_catOrigem === 'tx'){ _modalCat = nome; _catTocadaManual = true; renderModalCats(); }
+    else if(_catOrigem === 'fixo'){ _fixoCat = nome; renderModalCatsFixo(); }
+    showToast('Categoria criada! ✓');
+  } else if(_catEdit.custom){
+    const nomeAntigo = _catEdit.nome;
+    if(nome !== nomeAntigo && all[nome]){ showToast('Já existe categoria com esse nome','error'); return; }
+    await update(ref(db,`grupos/${grupoCode}/categorias/${_catEdit._key}`),{nome, emoji:_catEmoji});
+    if(nome !== nomeAntigo) await migrarNomeCategoria(nomeAntigo, nome);
+    showToast('Categoria atualizada! ✓');
+  } else {
+    await update(ref(db,`grupos/${grupoCode}/categoriasMeta/${_catEdit.nome}`),{emoji:_catEmoji});
+    showToast('Emoji atualizado! ✓');
+  }
+  fecharModalCat();
+};
+
+// Migra cat dos gastos e fixos VIGENTES (não mexe em histórico arquivado, que é snapshot).
+async function migrarNomeCategoria(antigo, novo){
+  const updates = {};
+  (_dados.gastos||[]).forEach(g=>{ if(g.cat===antigo) updates[`gastos/${g._key}/cat`]=novo; });
+  (_dados.fixos ||[]).forEach(f=>{ if(f.cat===antigo) updates[`fixos/${f._key}/cat`]=novo; });
+  if(_modalCat===antigo) _modalCat=novo;
+  if(_fixoCat ===antigo) _fixoCat =novo;
+  if(Object.keys(updates).length) await update(ref(db,`grupos/${grupoCode}`), updates);
 }
 
 window.removerCategoria = async function(key, nome){
@@ -3827,6 +3888,24 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
     <div class="emoji-grid" id="emoji-grid"></div>
     <div class="modal-actions">
       <button class="modal-btn modal-btn-cancel" onclick="fecharEmoji()">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-cat" onclick="if(event.target===this)fecharModalCat()">
+  <div class="modal-card" style="max-width:360px">
+    <div class="modal-handle"></div>
+    <div class="modal-titulo" id="modal-cat-titulo">Nova categoria</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;margin:6px 0 14px">
+      <button type="button" id="modal-cat-emoji-btn" onclick="trocarEmojiCat()"
+        style="font-size:38px;line-height:1;width:78px;height:78px;border-radius:18px;background:var(--surface2);border:1px solid var(--border);cursor:pointer">＋</button>
+      <div style="font-size:11px;color:var(--text3)">toque pra escolher o emoji</div>
+    </div>
+    <label class="modal-label" id="modal-cat-nome-label">Nome</label>
+    <input type="text" class="modal-input" id="modal-cat-nome" placeholder="Ex: Pet, Investimentos..."/>
+    <div class="modal-actions">
+      <button class="modal-btn modal-btn-cancel" onclick="fecharModalCat()">Cancelar</button>
+      <button class="modal-btn modal-btn-confirm in" id="modal-cat-salvar" onclick="salvarCategoria()">Salvar</button>
     </div>
   </div>
 </div>
