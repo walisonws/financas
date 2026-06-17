@@ -1530,6 +1530,31 @@ window.selecionarCatFixo = function(nome){
   renderModalCatsFixo();
 }
 
+// ── SELETOR VISUAL DE EMOJI ─────────────────────────────────────────────────
+const EMOJI_OPCOES = [
+  '🍽️','🍔','🍕','☕','🍺','🛒','🥗','🍎',
+  '🚗','⛽','🚌','✈️','🏍️','🚕','🅿️','🛣️',
+  '🏠','🏡','💡','💧','🌐','🔥','🛋️','🧹',
+  '🩺','💊','🏥','🦷','🏋️','🧠','💉','🩹',
+  '🎉','🎮','🎬','🎵','📺','⚽','🏖️','🎸',
+  '🛍️','👕','👟','🎁','💻','📱','💳','🛒',
+  '📚','✏️','🎓','🏫','📝','🔬','💼','🧾',
+  '💰','💵','📦','⭐','❤️','🐶','🐱','✂️'
+];
+let _emojiCb = null;
+window.escolherEmoji = function(onPick){
+  _emojiCb = onPick;
+  document.getElementById('emoji-grid').innerHTML = EMOJI_OPCOES.map(e=>
+    `<div class="emoji-cell" onclick="_pickEmoji('${e}')">${e}</div>`
+  ).join('');
+  document.getElementById('modal-emoji').classList.add('show');
+};
+window._pickEmoji = function(e){
+  const cb = _emojiCb; _emojiCb = null;
+  _fecharOverlay('modal-emoji', ()=>{ if(cb) cb(e); });
+};
+window.fecharEmoji = function(){ _emojiCb = null; _fecharOverlay('modal-emoji'); };
+
 window.confirmarFixo = async function(){
   const nome = document.getElementById('modal-fixo-nome').value.trim();
   const val  = parseFloat(document.getElementById('modal-fixo-valor').value);
@@ -3022,6 +3047,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .data-btn{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text2);padding:9px 0;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent;}
 .data-btn.active{background:var(--surface3);color:var(--text1);border-color:var(--gold);}
 .modal-cats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px;}
+.emoji-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;max-height:240px;overflow-y:auto;margin-bottom:14px;}
+.emoji-cell{font-size:22px;line-height:1;padding:8px 0;text-align:center;background:var(--surface2);border:1px solid var(--border);border-radius:10px;cursor:pointer;}
+.emoji-cell:active{transform:scale(0.92);}
 .cat-pick{
   display:flex;flex-direction:column;align-items:center;gap:3px;
   padding:10px 4px;border:1px solid var(--border);border-radius:10px;
@@ -3788,6 +3816,17 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
     <div class="modal-actions">
       <button class="modal-btn modal-btn-cancel" onclick="fecharModal()">Cancelar</button>
       <button class="modal-btn modal-btn-confirm in" id="modal-btn-confirm" onclick="confirmarModal()">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-emoji" onclick="if(event.target===this)fecharEmoji()">
+  <div class="modal-card" style="max-width:360px">
+    <div class="modal-handle"></div>
+    <div class="modal-titulo">Escolha um emoji</div>
+    <div class="emoji-grid" id="emoji-grid"></div>
+    <div class="modal-actions">
+      <button class="modal-btn modal-btn-cancel" onclick="fecharEmoji()">Cancelar</button>
     </div>
   </div>
 </div>
