@@ -51,6 +51,7 @@ let _customCats = [];
 let _catMeta = {}; // overrides de emoji das categorias PADRÃO (grupos/{code}/categoriasMeta)
 let _info = { plano:'free', validoAte:0 }; // dados de assinatura do grupo
 let _metaMensal = 0;
+let _cofrinho = null;
 let mesAtivoIdx  = now.getMonth();
 
 // ── CONFIGURAÇÕES COMERCIAIS ──────────────────────────────────────────────
@@ -560,6 +561,10 @@ function escutarDados(){
     _dados.caixa = snap.val() || {};
     renderTudo();
   });
+  onValue(ref(db,`grupos/${grupoCode}/cofrinho`), snap=>{
+    _cofrinho = snap.val() || null;
+    renderTudo();
+  });
   onValue(ref(db,`grupos/${grupoCode}/historico`), snap=>{
     _dados.historico = snap.val()
       ? Object.entries(snap.val()).map(([k,v])=>({...v, _key:k})).sort((a,b)=>b.ts-a.ts)
@@ -719,7 +724,7 @@ function renderTudo(){
   const sec = document.querySelector('.section.active');
   if(!sec) return;
   const id = sec.id.replace('sec-','');
-  if(id==='meu')    renderMeu();
+  if(id==='meu'){   renderMeu(); renderCofrinho(); }
   if(id==='resumo') renderResumo();
   if(id==='fixos')  renderFixos();
   if(id==='historico'){
@@ -1283,6 +1288,127 @@ window.confirmarCaixa = async function(){
   fecharModalCaixa();
   showToast('Valor em caixa salvo!');
 }
+
+// ── COFRINHO / META DE ECONOMIA ─────────────────────────────────────────────
+function renderCofrinho(){
+  const cont = document.getElementById('card-cofrinho');
+  if(!cont) return;
+  const c = _cofrinho;
+  if(!c || !c.alvo){
+    cont.innerHTML = `
+      <div class="cofre-novo" onclick="abrirCofrinhoConfig('novo')">
+        <span class="cofre-novo-ic">🐷</span>
+        <div><div class="cofre-novo-t">Criar um cofrinho</div>
+        <div class="cofre-novo-s">Junte dinheiro pra uma meta</div></div>
+        <span style="margin-left:auto;color:var(--gold);font-size:22px">＋</span>
+      </div>`;
+    return;
+  }
+  const guardado = c.guardado || 0;
+  const pct = Math.min(100, Math.round((guardado / c.alvo) * 100));
+  const completo = guardado >= c.alvo;
+  cont.innerHTML = `
+    <div class="cofre-card">
+      <div class="cofre-head">
+        <span class="cofre-emoji">${esc(c.emoji||'🐷')}</span>
+        <div class="cofre-nome">${esc(c.nome||'Cofrinho')}</div>
+        <button class="cofre-cfg" onclick="abrirCofrinhoConfig('editar')" aria-label="Editar cofrinho">⋯</button>
+      </div>
+      <div class="cofre-vals"><strong>${fmt(guardado)}</strong> <span style="color:var(--text2)">de ${fmt(c.alvo)} · ${pct}%</span></div>
+      <div class="cofre-bar"><div class="cofre-fill" style="width:${pct}%"></div></div>
+      ${completo ? `<div class="cofre-ok">🎉 Meta atingida!</div>` : ''}
+      <div class="cofre-acoes">
+        <button class="cofre-btn guardar" onclick="abrirCofreDeposito('guardar')">＋ Guardar</button>
+        <button class="cofre-btn tirar" onclick="abrirCofreDeposito('tirar')">− Tirar</button>
+      </div>
+    </div>`;
+}
+
+// Config (criar/editar) — emoji + nome + alvo (numpad próprio)
+let _cofreEmoji = '🐷';
+let _cofreAlvoCents = 0;
+function numpadCofreAlvoSync(){
+  document.getElementById('numpad-cofre-alvo-val').textContent =
+    (_cofreAlvoCents/100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+window.numpadCofreAlvoDigit = function(d){ if(_cofreAlvoCents>=999999999) return; _cofreAlvoCents=_cofreAlvoCents*10+parseInt(d); numpadCofreAlvoSync(); }
+window.numpadCofreAlvoBack  = function(){ _cofreAlvoCents=Math.floor(_cofreAlvoCents/10); numpadCofreAlvoSync(); }
+window.numpadCofreAlvoClear = function(){ _cofreAlvoCents=0; numpadCofreAlvoSync(); }
+
+window.abrirCofrinhoConfig = function(modo){
+  if(!isPro()){ abrirModalPro('feature'); return; }
+  if(modo==='editar' && _cofrinho){
+    _cofreEmoji = _cofrinho.emoji || '🐷';
+    _cofreAlvoCents = Math.round((_cofrinho.alvo||0)*100);
+    document.getElementById('modal-cofre-cfg-titulo').textContent = 'Editar cofrinho';
+    document.getElementById('modal-cofre-nome').value = _cofrinho.nome || '';
+    document.getElementById('btn-apagar-cofre').style.display = 'block';
+  } else {
+    _cofreEmoji = '🐷';
+    _cofreAlvoCents = 0;
+    document.getElementById('modal-cofre-cfg-titulo').textContent = 'Novo cofrinho';
+    document.getElementById('modal-cofre-nome').value = '';
+    document.getElementById('btn-apagar-cofre').style.display = 'none';
+  }
+  document.getElementById('modal-cofre-emoji-btn').textContent = _cofreEmoji;
+  numpadCofreAlvoSync();
+  document.getElementById('modal-cofre-cfg').classList.add('show');
+};
+window.fecharCofreCfg = function(){ _fecharOverlay('modal-cofre-cfg'); };
+window.trocarEmojiCofre = function(){ escolherEmoji(e=>{ _cofreEmoji=e; document.getElementById('modal-cofre-emoji-btn').textContent=e; }); };
+
+window.salvarCofrinho = async function(){
+  const nome = (document.getElementById('modal-cofre-nome').value||'').trim() || 'Meu cofrinho';
+  const alvo = _cofreAlvoCents/100;
+  if(alvo<=0){ showToast('Defina um valor de meta','error'); return; }
+  const guardado = (_cofrinho && _cofrinho.guardado) ? _cofrinho.guardado : 0;
+  await set(ref(db,`grupos/${grupoCode}/cofrinho`), {nome, emoji:_cofreEmoji, alvo, guardado});
+  fecharCofreCfg();
+  showToast('Cofrinho salvo! 🐷');
+};
+window.apagarCofrinho = function(){
+  confirmarAcao({
+    titulo:'Apagar cofrinho?',
+    msg:'A meta e o valor guardado serão removidos.',
+    textoBotao:'Apagar',
+    onConfirm: async ()=>{
+      await remove(ref(db,`grupos/${grupoCode}/cofrinho`));
+      fecharCofreCfg();
+      showToast('Cofrinho removido');
+    }
+  });
+};
+
+// Depósito / saque — numpad próprio
+let _cofreModo = 'guardar';
+let _cofreCents = 0;
+function numpadCofreSync(){
+  document.getElementById('numpad-cofre-val').textContent =
+    (_cofreCents/100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+window.numpadCofreDigit = function(d){ if(_cofreCents>=999999999) return; _cofreCents=_cofreCents*10+parseInt(d); numpadCofreSync(); }
+window.numpadCofreBack  = function(){ _cofreCents=Math.floor(_cofreCents/10); numpadCofreSync(); }
+window.numpadCofreClear = function(){ _cofreCents=0; numpadCofreSync(); }
+
+window.abrirCofreDeposito = function(modo){
+  _cofreModo = modo==='tirar' ? 'tirar' : 'guardar';
+  _cofreCents = 0; numpadCofreSync();
+  document.getElementById('modal-cofre-dep-titulo').textContent =
+    _cofreModo==='tirar' ? '− Tirar do cofrinho' : '＋ Guardar no cofrinho';
+  document.getElementById('modal-cofre-dep').classList.add('show');
+};
+window.fecharCofreDep = function(){ _fecharOverlay('modal-cofre-dep'); };
+window.confirmarCofreDeposito = async function(){
+  const val = _cofreCents/100;
+  if(val<=0){ showToast('Informe um valor','error'); return; }
+  const atual = (_cofrinho && _cofrinho.guardado) ? _cofrinho.guardado : 0;
+  let novo = _cofreModo==='tirar' ? atual - val : atual + val;
+  if(novo<0) novo = 0;
+  await update(ref(db,`grupos/${grupoCode}/cofrinho`), {guardado:novo});
+  fecharCofreDep();
+  haptic(40);
+  showToast(_cofreModo==='tirar' ? 'Retirado do cofrinho' : 'Guardado no cofrinho! 🐷');
+};
 
 // ── MODAL RECEBI/GASTEI (com modo edição) ──────────────────────────────────
 let _modalTipo = 'in';
@@ -2751,6 +2877,23 @@ html[data-theme="light"]{
 .cat-cores{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:0 0 14px}
 .cat-cor{width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid transparent}
 .cat-cor.ativo{border-color:var(--text)}
+.cofre-novo{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px dashed var(--gold-border);border-radius:16px;padding:14px 16px;cursor:pointer}
+.cofre-novo-ic{font-size:28px}
+.cofre-novo-t{font-weight:700;color:var(--text);font-size:15px}
+.cofre-novo-s{font-size:12px;color:var(--text2)}
+.cofre-card{background:var(--surface);border:1px solid var(--border2);border-radius:16px;padding:14px 16px}
+.cofre-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.cofre-emoji{font-size:24px}
+.cofre-nome{font-weight:700;color:var(--text);font-size:15px;flex:1}
+.cofre-cfg{background:transparent;border:none;color:var(--text2);font-size:22px;cursor:pointer;line-height:1}
+.cofre-vals{font-size:14px;color:var(--text);margin-bottom:8px}
+.cofre-bar{height:10px;border-radius:6px;background:var(--surface3);overflow:hidden}
+.cofre-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--gold-light),var(--gold));transition:width 0.4s ease}
+.cofre-ok{margin-top:8px;color:var(--green);font-weight:600;font-size:13px}
+.cofre-acoes{display:flex;gap:8px;margin-top:12px}
+.cofre-btn{flex:1;padding:10px;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;border:1px solid var(--border2);background:var(--surface2);color:var(--text)}
+.cofre-btn.guardar{border-color:var(--gold-border);color:var(--gold);background:var(--gold-bg)}
+.cofre-btn.tirar{color:var(--text2)}
 
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;overscroll-behavior:none;}
@@ -3669,6 +3812,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         </div>
       </div>
 
+      <!-- COFRINHO / META DE ECONOMIA -->
+      <div id="card-cofrinho" style="margin-bottom:12px"></div>
+
       <!-- META MENSAL -->
       <div id="card-meta" class="card card-gold" style="display:block;margin-bottom:12px"></div>
 
@@ -3987,6 +4133,66 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
     <div class="modal-actions">
       <button class="modal-btn modal-btn-cancel" onclick="fecharModalCaixa()">Cancelar</button>
       <button class="modal-btn" style="background:linear-gradient(135deg,#f0c84a,#d4af37);color:#0a0800" onclick="confirmarCaixa()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-cofre-cfg" onclick="if(event.target===this)fecharCofreCfg()">
+  <div class="modal-card">
+    <div class="modal-handle"></div>
+    <div class="modal-titulo" style="color:var(--gold)" id="modal-cofre-cfg-titulo">Novo cofrinho</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:8px;margin:6px 0 12px">
+      <button type="button" id="modal-cofre-emoji-btn" onclick="trocarEmojiCofre()" style="font-size:38px;line-height:1;width:72px;height:72px;border-radius:18px;background:var(--surface2);border:1px solid var(--border);cursor:pointer">🐷</button>
+      <div style="font-size:11px;color:var(--text3)">toque pra escolher o emoji</div>
+    </div>
+    <label class="modal-label">Nome da meta</label>
+    <input type="text" class="modal-input" id="modal-cofre-nome" placeholder="Ex: Cadeira nova, Férias..."/>
+    <label class="modal-label" style="margin-top:10px">Quanto quer juntar</label>
+    <div class="numpad-display">R$ <span id="numpad-cofre-alvo-val">0,00</span></div>
+    <div class="numpad-grid">
+      <button class="numpad-key" onclick="numpadCofreAlvoDigit('1')">1</button>
+      <button class="numpad-key" onclick="numpadCofreAlvoDigit('2')">2</button>
+      <button class="numpad-key" onclick="numpadCofreAlvoDigit('3')">3</button>
+      <button class="numpad-key" onclick="numpadCofreAlvoDigit('4')">4</button>
+      <button class="numpad-key" onclick="numpadCofreAlvoDigit('5')">5</button>
+      <button class="numpad-key" onclick="numpadCofreAlvoDigit('6')">6</button>
+      <button class="numpad-key" onclick="numpadCofreAlvoDigit('7')">7</button>
+      <button class="numpad-key" onclick="numpadCofreAlvoDigit('8')">8</button>
+      <button class="numpad-key" onclick="numpadCofreAlvoDigit('9')">9</button>
+      <button class="numpad-key numpad-back" onclick="numpadCofreAlvoBack()">⌫</button>
+      <button class="numpad-key" onclick="numpadCofreAlvoDigit('0')">0</button>
+      <button class="numpad-key numpad-clear" onclick="numpadCofreAlvoClear()">C</button>
+    </div>
+    <button id="btn-apagar-cofre" onclick="apagarCofrinho()" style="display:none;width:100%;background:transparent;border:none;color:var(--red);font-size:13px;padding:8px;cursor:pointer;margin-top:6px">🗑 Apagar cofrinho</button>
+    <div class="modal-actions">
+      <button class="modal-btn modal-btn-cancel" onclick="fecharCofreCfg()">Cancelar</button>
+      <button class="modal-btn" style="background:linear-gradient(135deg,#f0c84a,#d4af37);color:#0a0800" onclick="salvarCofrinho()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-cofre-dep" onclick="if(event.target===this)fecharCofreDep()">
+  <div class="modal-card">
+    <div class="modal-handle"></div>
+    <div class="modal-titulo" style="color:var(--gold)" id="modal-cofre-dep-titulo">＋ Guardar no cofrinho</div>
+    <div class="numpad-display">R$ <span id="numpad-cofre-val">0,00</span></div>
+    <div class="numpad-grid">
+      <button class="numpad-key" onclick="numpadCofreDigit('1')">1</button>
+      <button class="numpad-key" onclick="numpadCofreDigit('2')">2</button>
+      <button class="numpad-key" onclick="numpadCofreDigit('3')">3</button>
+      <button class="numpad-key" onclick="numpadCofreDigit('4')">4</button>
+      <button class="numpad-key" onclick="numpadCofreDigit('5')">5</button>
+      <button class="numpad-key" onclick="numpadCofreDigit('6')">6</button>
+      <button class="numpad-key" onclick="numpadCofreDigit('7')">7</button>
+      <button class="numpad-key" onclick="numpadCofreDigit('8')">8</button>
+      <button class="numpad-key" onclick="numpadCofreDigit('9')">9</button>
+      <button class="numpad-key numpad-back" onclick="numpadCofreBack()">⌫</button>
+      <button class="numpad-key" onclick="numpadCofreDigit('0')">0</button>
+      <button class="numpad-key numpad-clear" onclick="numpadCofreClear()">C</button>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn modal-btn-cancel" onclick="fecharCofreDep()">Cancelar</button>
+      <button class="modal-btn" style="background:linear-gradient(135deg,#f0c84a,#d4af37);color:#0a0800" onclick="confirmarCofreDeposito()">Confirmar</button>
     </div>
   </div>
 </div>
