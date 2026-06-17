@@ -277,6 +277,21 @@ function showToastUndo(msg, onUndo){
   btn.addEventListener('click', ()=>{ clearTimeout(timer); t.classList.remove('show'); setTimeout(()=>t.remove(), 300); onUndo(); });
 }
 
+// Caixa de confirmação estilizada (substitui confirm() nativo nas exclusões).
+let _confirmCb = null;
+function confirmarAcao({titulo, msg, textoBotao='Apagar', onConfirm}){
+  _confirmCb = onConfirm;
+  document.getElementById('confirm-titulo').textContent = titulo || 'Tem certeza?';
+  document.getElementById('confirm-msg').textContent = msg || '';
+  document.getElementById('confirm-ok').textContent = textoBotao;
+  document.getElementById('modal-confirm').classList.add('show');
+}
+window.confirmCancelar = function(){ _confirmCb = null; _fecharOverlay('modal-confirm'); };
+window.confirmOk = function(){
+  const cb = _confirmCb; _confirmCb = null;
+  _fecharOverlay('modal-confirm', ()=>{ if(cb) cb(); });
+};
+
 function animarContador(el, from, to){
   const dur = 500, start = performance.now(), diff = to - from;
   function tick(now){
@@ -1559,15 +1574,21 @@ function renderGerenciarCats(){
   }).join('');
 }
 
-window.removerCategoria = async function(key, nome){
-  if(!confirm(`Remover a categoria "${nome}"?\n\nGastos com essa categoria continuam, mas voltam pra "Outros".`)) return;
-  await remove(ref(db,`grupos/${grupoCode}/categorias/${key}`));
-  // Se tava selecionada, volta pra Outros
-  if(_modalCat === nome) _modalCat = 'Outros';
-  if(_fixoCat  === nome) _fixoCat  = 'Outros';
-  renderModalCats();
-  renderModalCatsFixo();
-  showToast('Categoria removida');
+window.removerCategoria = function(key, nome){
+  confirmarAcao({
+    titulo:'Remover categoria?',
+    msg:`Gastos com "${nome}" continuam, mas voltam pra "Outros".`,
+    textoBotao:'Remover',
+    onConfirm: async ()=>{
+      await remove(ref(db,`grupos/${grupoCode}/categorias/${key}`));
+      if(_modalCat === nome) _modalCat = 'Outros';
+      if(_fixoCat  === nome) _fixoCat  = 'Outros';
+      renderModalCats();
+      renderModalCatsFixo();
+      if(document.getElementById('modal-gerenciar').classList.contains('show')) renderGerenciarCats();
+      showToast('Categoria removida');
+    }
+  });
 }
 
 window.confirmarModal = async function(){
@@ -2255,22 +2276,43 @@ window.toggleFixo = async function(key, novoPago){
 }
 
 window.delGanho = function(key){
-  if(!(_dados.ganhos||[]).find(g=>g._key===key)) return;
-  const timer = setTimeout(async()=>{ await remove(ref(db,`grupos/${grupoCode}/ganhos/${key}`)); _pendingDeletes.delete(key); }, 4000);
-  _pendingDeletes.set(key, timer); renderTudo();
-  showToastUndo('Entrada removida', ()=>{ clearTimeout(timer); _pendingDeletes.delete(key); renderTudo(); });
+  const g = (_dados.ganhos||[]).find(x=>x._key===key);
+  if(!g) return;
+  confirmarAcao({
+    titulo:'Apagar entrada?',
+    msg:`"${g.desc||'Ganho'}" (${fmt(g.valor||0)}) será removido.`,
+    onConfirm:()=>{
+      const timer = setTimeout(async()=>{ await remove(ref(db,`grupos/${grupoCode}/ganhos/${key}`)); _pendingDeletes.delete(key); }, 4000);
+      _pendingDeletes.set(key, timer); renderTudo();
+      showToastUndo('Entrada removida', ()=>{ clearTimeout(timer); _pendingDeletes.delete(key); renderTudo(); });
+    }
+  });
 }
 window.delGasto = function(key){
-  if(!(_dados.gastos||[]).find(g=>g._key===key)) return;
-  const timer = setTimeout(async()=>{ await remove(ref(db,`grupos/${grupoCode}/gastos/${key}`)); _pendingDeletes.delete(key); }, 4000);
-  _pendingDeletes.set(key, timer); renderTudo();
-  showToastUndo('Gasto removido', ()=>{ clearTimeout(timer); _pendingDeletes.delete(key); renderTudo(); });
+  const g = (_dados.gastos||[]).find(x=>x._key===key);
+  if(!g) return;
+  confirmarAcao({
+    titulo:'Apagar gasto?',
+    msg:`"${g.nome||'Gasto'}" (${fmt(g.valor||0)}) será removido.`,
+    onConfirm:()=>{
+      const timer = setTimeout(async()=>{ await remove(ref(db,`grupos/${grupoCode}/gastos/${key}`)); _pendingDeletes.delete(key); }, 4000);
+      _pendingDeletes.set(key, timer); renderTudo();
+      showToastUndo('Gasto removido', ()=>{ clearTimeout(timer); _pendingDeletes.delete(key); renderTudo(); });
+    }
+  });
 }
 window.delFixo = function(key){
-  if(!(_dados.fixos||[]).find(g=>g._key===key)) return;
-  const timer = setTimeout(async()=>{ await remove(ref(db,`grupos/${grupoCode}/fixos/${key}`)); _pendingDeletes.delete(key); }, 4000);
-  _pendingDeletes.set(key, timer); renderTudo();
-  showToastUndo('Conta fixa removida', ()=>{ clearTimeout(timer); _pendingDeletes.delete(key); renderTudo(); });
+  const f = (_dados.fixos||[]).find(x=>x._key===key);
+  if(!f) return;
+  confirmarAcao({
+    titulo:'Apagar conta fixa?',
+    msg:`"${f.nome||'Conta'}" (${fmt(f.valor||0)}) será removida.`,
+    onConfirm:()=>{
+      const timer = setTimeout(async()=>{ await remove(ref(db,`grupos/${grupoCode}/fixos/${key}`)); _pendingDeletes.delete(key); }, 4000);
+      _pendingDeletes.set(key, timer); renderTudo();
+      showToastUndo('Conta fixa removida', ()=>{ clearTimeout(timer); _pendingDeletes.delete(key); renderTudo(); });
+    }
+  });
 }
 
 window.fecharMes = async function(){
@@ -2329,9 +2371,15 @@ window.fecharMes = async function(){
 
 window.delHistorico = function(key, mes){
   if(!(_dados.historico||[]).find(h=>h._key===key)) return;
-  const timer = setTimeout(async()=>{ await remove(ref(db,`grupos/${grupoCode}/historico/${key}`)); _pendingDeletes.delete(key); }, 4000);
-  _pendingDeletes.set(key, timer); renderTudo();
-  showToastUndo(`Histórico de ${mes} removido`, ()=>{ clearTimeout(timer); _pendingDeletes.delete(key); renderTudo(); });
+  confirmarAcao({
+    titulo:'Apagar arquivo do histórico?',
+    msg:`O resumo arquivado de ${mes} será removido.`,
+    onConfirm:()=>{
+      const timer = setTimeout(async()=>{ await remove(ref(db,`grupos/${grupoCode}/historico/${key}`)); _pendingDeletes.delete(key); }, 4000);
+      _pendingDeletes.set(key, timer); renderTudo();
+      showToastUndo(`Histórico de ${mes} removido`, ()=>{ clearTimeout(timer); _pendingDeletes.delete(key); renderTudo(); });
+    }
+  });
 }
 
 window.fecharWelcome = function(){
@@ -4013,6 +4061,18 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
     <div class="modal-actions">
       <button class="modal-btn modal-btn-cancel" onclick="fecharGerenciar()">Fechar</button>
       <button class="modal-btn modal-btn-confirm in" onclick="criarCategoria('gerenciar')">＋ Nova</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-confirm" onclick="if(event.target===this)confirmCancelar()">
+  <div class="modal-card" style="max-width:340px">
+    <div class="modal-handle"></div>
+    <div class="modal-titulo" id="confirm-titulo">Tem certeza?</div>
+    <div class="modal-sub" id="confirm-msg" style="margin-bottom:18px"></div>
+    <div class="modal-actions">
+      <button class="modal-btn modal-btn-cancel" onclick="confirmCancelar()">Cancelar</button>
+      <button class="modal-btn modal-btn-confirm" id="confirm-ok" style="background:var(--red);color:#fff" onclick="confirmOk()">Apagar</button>
     </div>
   </div>
 </div>
