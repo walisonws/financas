@@ -1309,6 +1309,7 @@ window.abrirModal = function(tipo, editKey){
     numpadSet(item.valor || 0);
     descEl.value = (tipo==='in' ? item.desc : item.nome) || '';
     if(tipo==='out') _modalCat = item.cat || 'Alimentação';
+    _catTocadaManual = true; // edição já tem categoria definida
     if(dataWrap) dataWrap.style.display = 'none'; // data não é editável
   } else {
     // MODO CRIAÇÃO
@@ -1317,6 +1318,8 @@ window.abrirModal = function(tipo, editKey){
     btnConf.textContent= tipo==='in' ? 'Confirmar entrada' : 'Confirmar gasto';
     numpadClear();
     descEl.value = '';
+    _catTocadaManual = false;
+    _modalCat = sugerirCategoria('');
     setModalData('hoje');
     if(dataWrap) dataWrap.style.display = 'block';
   }
@@ -1344,7 +1347,16 @@ window.abrirModal = function(tipo, editKey){
     }
   }
 
+  _modalCatExpandido = false;
   renderModalCats();
+  if(!descEl._sugListener){
+    descEl._sugListener = true;
+    descEl.addEventListener('input', ()=>{
+      if(_modalTipo!=='out' || _modalEditKey || _catTocadaManual) return;
+      const nova = sugerirCategoria(descEl.value);
+      if(nova !== _modalCat){ _modalCat = nova; if(!_modalCatExpandido) renderModalCats(); }
+    });
+  }
   haptic(20);
   overlay.classList.add('show');
   setTimeout(()=>valEl.focus(), 100);
@@ -1381,27 +1393,45 @@ function renderModalCats(){
   if(!cont) return;
   const all = getAllCats();
   const escapar = s => String(s).replace(/'/g,"\\'");
-  cont.innerHTML = Object.entries(all).map(([nome,info])=>{
-    const removerBtn = info.custom
-      ? `<button class="cat-del" onclick="event.stopPropagation();removerCategoria('${info._key}','${escapar(nome)}')">×</button>`
-      : '';
-    return `
+  const info = all[_modalCat] || {emoji:'📦'};
+
+  if(!_modalCatExpandido){
+    // RECOLHIDO — só a sugerida + "Trocar"
+    cont.className = 'modal-cats-recolhido';
+    cont.innerHTML = `
+      <div class="cat-chip-sel" onclick="expandirCats()">
+        <span class="cat-chip-emoji">${esc(info.emoji)}</span>
+        <span class="cat-chip-nome">${esc(_modalCat)}</span>
+      </div>
+      <button type="button" class="cat-trocar-btn" onclick="expandirCats()">Trocar ▾</button>`;
+    return;
+  }
+
+  // EXPANDIDO — grade completa + Nova + Gerenciar
+  cont.className = 'modal-cats';
+  cont.innerHTML = Object.entries(all).map(([nome,inf])=>`
     <div class="cat-pick ${nome===_modalCat?'active':''}" onclick="selecionarCat('${escapar(nome)}')">
-      <div class="cat-pick-emoji">${esc(info.emoji)}</div>
+      <div class="cat-pick-emoji">${esc(inf.emoji)}</div>
       <div class="cat-pick-label">${esc(nome)}</div>
-      ${removerBtn}
-    </div>`;
-  }).join('') + `
+    </div>`).join('') + `
     <div class="cat-pick cat-nova" onclick="criarCategoria('tx')">
       <div class="cat-pick-emoji">＋</div>
       <div class="cat-pick-label">Nova</div>
+    </div>
+    <div class="cat-pick cat-nova" onclick="abrirGerenciarCats()">
+      <div class="cat-pick-emoji">⚙️</div>
+      <div class="cat-pick-label">Gerenciar</div>
     </div>`;
 }
 
+window.expandirCats = function(){ _modalCatExpandido = true; renderModalCats(); };
+
 window.selecionarCat = function(nome){
   _modalCat = nome;
+  _catTocadaManual = true;
+  _modalCatExpandido = false;
   renderModalCats();
-}
+};
 
 // Estado do modal categoria. _catEdit = null (nova) | {nome, emoji, _key|null, custom}
 let _catEmoji = '📦';
@@ -3119,6 +3149,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 }
 .cat-pick{position:relative;}
 .cat-pick.active{background:var(--gold-bg);border-color:var(--gold-border);}
+.modal-cats-recolhido{display:flex;align-items:center;gap:8px;margin-bottom:14px;}
+.cat-chip-sel{display:flex;align-items:center;gap:8px;background:var(--gold-bg);border:1.5px solid var(--gold);border-radius:12px;padding:9px 12px;cursor:pointer;}
+.cat-chip-emoji{font-size:18px;line-height:1;}
+.cat-chip-nome{font-size:14px;font-weight:600;color:var(--text);}
+.cat-trocar-btn{background:transparent;border:1px solid var(--border);color:var(--gold);border-radius:10px;padding:9px 12px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;}
 .cat-pick-emoji{font-size:18px;line-height:1;}
 .cat-pick-label{font-size:9.5px;color:var(--text2);font-weight:600;}
 .cat-pick.active .cat-pick-label{color:var(--gold);}
