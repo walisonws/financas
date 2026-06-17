@@ -1,4 +1,4 @@
-const CACHE = 'grana-pro-v1';
+const CACHE = 'grana-pro-v2';
 const ASSETS = [
   '/financas/',
   '/financas/index.html'
