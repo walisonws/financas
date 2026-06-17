@@ -47,6 +47,7 @@ let _prevSaldo = null;
 let _prevSaldoCtx = null; // contexto (membro|mês) do último saldo exibido — anima só dentro do mesmo contexto
 let _tabAtiva = 0;
 let _customCats = [];
+let _catMeta = {}; // overrides de emoji das categorias PADRÃO (grupos/{code}/categoriasMeta)
 let _info = { plano:'free', validoAte:0 }; // dados de assinatura do grupo
 let _metaMensal = 0;
 let mesAtivoIdx  = now.getMonth();
@@ -558,6 +559,17 @@ function escutarDados(){
     if(document.getElementById('modal-tx').classList.contains('show')) renderModalCats();
     if(document.getElementById('modal-fixo').classList.contains('show')) renderModalCatsFixo();
   });
+  onValue(ref(db,`grupos/${grupoCode}/categoriasMeta`), snap=>{
+    _catMeta = snap.val() || {};
+    // Defensivo: alguns elementos/funções só existem depois de outras tasks.
+    const mtx = document.getElementById('modal-tx');
+    const mfx = document.getElementById('modal-fixo');
+    const mgr = document.getElementById('modal-gerenciar');
+    if(mtx && mtx.classList.contains('show')) renderModalCats();
+    if(mfx && mfx.classList.contains('show')) renderModalCatsFixo();
+    if(mgr && mgr.classList.contains('show') && typeof renderGerenciarCats==='function') renderGerenciarCats();
+    renderTudo();
+  });
 }
 
 // ── NAV MEMBROS ─────────────────────────────────────────────────────────────
@@ -701,14 +713,14 @@ function renderTudo(){
 
 // ── ABA INÍCIO (novo layout) ────────────────────────────────────────────────
 const CAT_INFO = {
-  'Alimentação':{emoji:'🍔', color:'#ef4444'},
+  'Alimentação':{emoji:'🍽️', color:'#ef4444'},
   'Transporte' :{emoji:'🚗', color:'#f97316'},
-  'Lazer'      :{emoji:'🎮', color:'#d4af37'},
-  'Saúde'      :{emoji:'💊', color:'#10b981'},
+  'Lazer'      :{emoji:'🎉', color:'#d4af37'},
+  'Saúde'      :{emoji:'🩺', color:'#10b981'},
   'Compras'    :{emoji:'🛍️', color:'#ec4899'},
-  'Moradia'    :{emoji:'🏠', color:'#3b82f6'},
+  'Moradia'    :{emoji:'🏡', color:'#3b82f6'},
   'Educação'   :{emoji:'📚', color:'#8b5cf6'},
-  'Outros'     :{emoji:'💼', color:'#8a7d65'}
+  'Outros'     :{emoji:'📦', color:'#8a7d65'}
 };
 
 // Mapa palavra-chave → categoria (PT-BR, comparado sem acento/minúsculo). Ampliável na mão.
@@ -1349,7 +1361,13 @@ window.fecharModal = function(){
 }
 
 function getAllCats(){
-  const result = {...CAT_INFO};
+  const result = {};
+  // Padrão, aplicando override de emoji (categoriasMeta) se houver.
+  Object.entries(CAT_INFO).forEach(([nome,info])=>{
+    const ov = _catMeta[nome];
+    result[nome] = {...info, emoji: (ov && ov.emoji) ? ov.emoji : info.emoji};
+  });
+  // Categorias criadas pelo usuário.
   _customCats.forEach(c=>{
     result[c.nome] = {emoji:c.emoji, color:c.color||'#d4af37', custom:true, _key:c._key};
   });
