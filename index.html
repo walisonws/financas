@@ -889,6 +889,24 @@ function renderMeu(){
     } else { compEl.style.display = 'none'; }
   }
 
+  // PREVISÃO DO MÊS — no ritmo atual, quanto entra até o fim do mês
+  const prevEl = document.getElementById('previsao-mes');
+  if(prevEl){
+    const hj = new Date();
+    const ehMesAtual = mesAtivoYear===hj.getFullYear() && mesAtivoIdx===hj.getMonth();
+    const diaH = hj.getDate();
+    const diasNoMes = new Date(mesAtivoYear, mesAtivoIdx+1, 0).getDate();
+    // Só a partir do 3º dia (antes disso a média engana) e antes do último dia
+    if(ehMesAtual && totalGanho > 0 && diaH >= 3 && diaH < diasNoMes){
+      const mediaDia = totalGanho / diaH;
+      const previsto = Math.round(mediaDia * diasNoMes);
+      prevEl.innerHTML = `📈 No ritmo atual, o mês fecha com <strong>~${fmt(previsto)}</strong> de entrada · média ${fmt(mediaDia)}/dia`;
+      prevEl.style.display = 'block';
+    } else {
+      prevEl.style.display = 'none';
+    }
+  }
+
   // LINHA EM CAIXA (sempre visível)
   const caixaLinhaEl = document.getElementById('caixa-linha');
   const caixaValEl   = document.getElementById('caixa-valor');
@@ -970,14 +988,28 @@ function renderMeu(){
     const hoje = new Date();
     const diaHoje = hoje.getDate();
     const fixosPendentes = filtrarMes(_dados.fixos).filter(f=>f.pid===membro.id && !f.pago && f.dia);
-    const proximas = fixosPendentes.filter(f=>{
+    // "Hoje" só faz sentido olhando o mês atual. Em mês passado, tudo que ficou sem pagar
+    // está atrasado; em mês futuro, nada está.
+    const mesAtual = mesAtivoYear===hoje.getFullYear() && mesAtivoIdx===hoje.getMonth();
+    const mesPassado = mesAtivoYear<hoje.getFullYear() || (mesAtivoYear===hoje.getFullYear() && mesAtivoIdx<hoje.getMonth());
+    const atrasadas = fixosPendentes.filter(f=> mesPassado || (mesAtual && Number(f.dia) < diaHoje))
+      .sort((a,b)=>a.dia-b.dia);
+    const proximas = mesAtual ? fixosPendentes.filter(f=>{
       const diff = f.dia - diaHoje;
       return diff >= 0 && diff <= 7;
-    }).sort((a,b)=>a.dia-b.dia);
+    }).sort((a,b)=>a.dia-b.dia) : [];
+    let html = '';
+    if(atrasadas.length > 0){
+      const nomes = atrasadas.map(f=>`${esc(f.nome)} (dia ${f.dia})`).join(', ');
+      html += `<div class="alerta-venc alerta-atrasada">🔴 Atrasada${atrasadas.length>1?'s':''}: <strong>${nomes}</strong></div>`;
+    }
     if(proximas.length > 0){
-      const nomes = proximas.map(f=>`${f.nome} (dia ${f.dia})`).join(', ');
+      const nomes = proximas.map(f=>`${esc(f.nome)} (dia ${f.dia})`).join(', ');
       const cor = proximas.some(f=>f.dia<=diaHoje+2) ? 'var(--red)' : 'var(--orange)';
-      alertaEl.innerHTML = `<div class="alerta-venc" style="border-color:${cor}">⚠️ Vence em breve: <strong>${nomes}</strong></div>`;
+      html += `<div class="alerta-venc" style="border-color:${cor}">⚠️ Vence em breve: <strong>${nomes}</strong></div>`;
+    }
+    if(html){
+      alertaEl.innerHTML = html;
       alertaEl.style.display = 'block';
     } else {
       alertaEl.style.display = 'none';
@@ -1678,6 +1710,7 @@ window.abrirModal = function(tipo, editKey){
 
   _modalCatExpandido = false;
   renderModalCats();
+  renderDescRapidas(tipo);
   if(!descEl._sugListener){
     descEl._sugListener = true;
     descEl.addEventListener('input', ()=>{
@@ -1690,6 +1723,50 @@ window.abrirModal = function(tipo, editKey){
   overlay.classList.add('show');
   setTimeout(()=>valEl.focus(), 100);
 }
+
+// ATALHOS DE DESCRIÇÃO — as descrições que a pessoa mais usa viram botões.
+// Um toque preenche a descrição (e, no Gastei, a categoria que ela costuma usar).
+let _descRapidas = [];
+function descricoesFrequentes(tipo){
+  const lista = tipo==='in' ? (_dados.ganhos||[]) : (_dados.gastos||[]);
+  const minhas = lista.filter(x=>x.pid===meuPerfil);
+  const base = minhas.length ? minhas : lista;
+  const grupos = {};
+  base.forEach(x=>{
+    const txt = String((tipo==='in' ? x.desc : x.nome) || '').trim();
+    if(!txt || txt.length > 30) return;
+    const k = txt.toLowerCase();
+    if(k === 'ganho do dia') return; // é o texto padrão de quando a descrição fica vazia
+    const g = grupos[k] || (grupos[k] = { txt, n:0, ts:0, cats:{} });
+    g.n++;
+    if((x.ts||0) >= g.ts){ g.ts = x.ts||0; g.txt = txt; }
+    if(tipo==='out'){ const c = x.cat||'Outros'; g.cats[c] = (g.cats[c]||0)+1; }
+  });
+  return Object.values(grupos)
+    .sort((a,b)=> b.n-a.n || b.ts-a.ts)
+    .slice(0,6)
+    .map(g=>({ txt:g.txt, cat: Object.entries(g.cats).sort((a,b)=>b[1]-a[1])[0]?.[0] || null }));
+}
+function renderDescRapidas(tipo){
+  const el = document.getElementById('modal-desc-rapidas');
+  if(!el) return;
+  _descRapidas = _modalEditKey ? [] : descricoesFrequentes(tipo);
+  if(!_descRapidas.length){ el.style.display='none'; el.innerHTML=''; return; }
+  el.innerHTML = _descRapidas.map((d,i)=>`<button type="button" class="desc-rapida" onclick="usarDescRapida(${i})">${esc(d.txt)}</button>`).join('');
+  el.style.display = 'flex';
+}
+window.usarDescRapida = function(i){
+  const d = _descRapidas[i];
+  if(!d) return;
+  document.getElementById('modal-desc').value = d.txt;
+  if(_modalTipo==='out' && d.cat){
+    _modalCat = d.cat;
+    _catTocadaManual = true; // não deixar a sugestão por palavra-chave trocar
+    _modalCatExpandido = false;
+    renderModalCats();
+  }
+  haptic(15);
+};
 
 function _fecharOverlay(id, cb){
   const el = document.getElementById(id);
@@ -2148,6 +2225,38 @@ function renderResumo(){
   }
 }
 
+// ── COMPARAÇÃO COM O MÊS PASSADO ────────────────────────────────────────────
+// Se o mês olhado é o atual, compara com o mês passado ATÉ O MESMO DIA (senão o mês
+// em andamento sempre pareceria pior). Mês já encerrado compara com o mês inteiro.
+function compMesAnterior(){
+  const idxAnt  = mesAtivoIdx === 0 ? 11 : mesAtivoIdx - 1;
+  const yearAnt = mesAtivoIdx === 0 ? mesAtivoYear - 1 : mesAtivoYear;
+  const hj = new Date();
+  const ehMesAtual = mesAtivoYear===hj.getFullYear() && mesAtivoIdx===hj.getMonth();
+  return { label: MESES[idxAnt] + ' ' + yearAnt, nome: MESES[idxAnt], ateDia: ehMesAtual ? hj.getDate() : null };
+}
+function totaisDoMes(mesLabel, pidFn, ateDia){
+  const doMes = arr => (arr||[]).filter(x=>(x.mes||getML())===mesLabel && !_pendingDeletes.has(x._key) && pidFn(x.pid)
+    && (ateDia==null || !x.ts || new Date(x.ts).getDate() <= ateDia));
+  const soma = arr => arr.reduce((a,b)=>a+(b.valor||0),0);
+  const ganhos = doMes(_dados.ganhos), gastos = doMes(_dados.gastos);
+  return { ganho: soma(ganhos), gasto: soma(gastos), nGanhos: ganhos.length + gastos.length };
+}
+// Selo "▲ 12%" — em gastos, subir é ruim (vermelho); em entradas, subir é bom (verde)
+function seloVariacao(atual, anterior, ehGasto){
+  if(!(anterior > 0)) return '';
+  const pct = Math.round((atual - anterior) / anterior * 100);
+  if(pct === 0) return `<span class="var-mes" style="color:var(--text3)">= 0%</span>`;
+  const subiu = pct > 0;
+  const bom = ehGasto ? !subiu : subiu;
+  return `<span class="var-mes" style="color:${bom?'var(--green)':'var(--red)'}">${subiu?'▲':'▼'} ${Math.abs(pct)}%</span>`;
+}
+function legendaComparacao(temDados){
+  if(!temDados) return '';
+  const c = compMesAnterior();
+  return ` · ▲▼ vs ${c.nome}${c.ateDia ? ' até o dia ' + c.ateDia : ''}`;
+}
+
 function renderResumoSolo(){
   const p = _resumoPeriodo;
   const ganhos = filtrarPorPeriodo(_dados.ganhos, p).filter(g=>g.pid===meuPerfil);
@@ -2191,6 +2300,14 @@ function renderResumoSolo(){
     document.getElementById('rs-saldo').textContent       = fmtSigned(saldo);
     document.getElementById('rs-saldo').style.color       = saldo>=0?'var(--green)':'var(--red)';
     renderBarraBalanco('rs-barra-solo', tG, tDiario+tFixoPago);
+
+    // Comparação com o mês passado
+    const cmp = compMesAnterior();
+    const ant = totaisDoMes(cmp.label, pid=>pid===meuPerfil, cmp.ateDia);
+    const atu = cmp.ateDia ? totaisDoMes(getMesAtivo(), pid=>pid===meuPerfil, cmp.ateDia) : {ganho:tG, gasto:tDiario};
+    document.getElementById('rs-ganho').innerHTML       = fmt(tG) + seloVariacao(atu.ganho, ant.ganho, false);
+    document.getElementById('rs-gasto-diario').innerHTML = fmt(tDiario) + seloVariacao(atu.gasto, ant.gasto, true);
+    document.getElementById('rs-subtitulo').textContent  = labels[p].sub + legendaComparacao(ant.nGanhos > 0);
   } else {
     // Modo HOJE / SEMANA: stats rápidos
     const saldo  = tG - tDiario;
@@ -2227,6 +2344,12 @@ function renderResumoGrupo(){
   const soEu = membroAtivo !== 'todos';
   const membrosAlvo = soEu ? membros.filter(m=>m.id===membroAtivo) : membros;
   let totalGrupoGanho=0, totalGrupoDiario=0, totalGrupoFixo=0, totalGrupoCaixa=0;
+  const cmp = compMesAnterior();
+  const comparar = (pidFn, tG, tD)=>{
+    const ant = totaisDoMes(cmp.label, pidFn, cmp.ateDia);
+    const atu = cmp.ateDia ? totaisDoMes(getMesAtivo(), pidFn, cmp.ateDia) : {ganho:tG, gasto:tD};
+    return { ant, selG: seloVariacao(atu.ganho, ant.ganho, false), selD: seloVariacao(atu.gasto, ant.gasto, true) };
+  };
 
   lista.innerHTML = membrosAlvo.map(m=>{
     const ganhos     = filtrarPorPeriodo(_dados.ganhos, p).filter(g=>g.pid===m.id);
@@ -2241,6 +2364,7 @@ function renderResumoGrupo(){
     totalGrupoDiario += tDiario;
     totalGrupoFixo   += tFixo;
     totalGrupoCaixa  += caixaM;
+    const cm = incluiFixos ? comparar(pid=>pid===m.id, tG, tDiario) : {selG:'', selD:''};
     return `<div class="resumo-membro-card">
       <div class="rm-header">
         <div class="rm-avatar" style="background:${m.cor}22;color:${m.cor}">${esc((m.nome||'?')[0].toUpperCase())}</div>
@@ -2248,8 +2372,8 @@ function renderResumoGrupo(){
         <div class="rm-saldo" style="color:${saldo>=0?'var(--green)':'var(--red)'}">${fmtSigned(saldo)}</div>
       </div>
       ${incluiFixos ? `<div class="rm-row"><span>Em caixa (início)</span><span style="color:var(--green)">${fmt(caixaM)}</span></div>` : ''}
-      <div class="rm-row"><span>Entradas</span><span style="color:var(--gold)">${fmt(tG)} <small style="color:var(--text3)">(${ganhos.length})</small></span></div>
-      <div class="rm-row"><span>Gastos diários</span><span style="color:var(--red)">${fmt(tDiario)} <small style="color:var(--text3)">(${gastos.length})</small></span></div>
+      <div class="rm-row"><span>Entradas</span><span style="color:var(--gold)">${fmt(tG)} <small style="color:var(--text3)">(${ganhos.length})</small>${cm.selG}</span></div>
+      <div class="rm-row"><span>Gastos diários</span><span style="color:var(--red)">${fmt(tDiario)} <small style="color:var(--text3)">(${gastos.length})</small>${cm.selD}</span></div>
       ${incluiFixos ? `<div class="rm-row"><span>Fixos pagos</span><span style="color:var(--orange)">${fmt(tFixo)}</span></div>` : ''}
     </div>`;
   }).join('');
@@ -2258,11 +2382,13 @@ function renderResumoGrupo(){
   const tituloGrupo = document.getElementById('rg-titulo');
   const subGrupo    = document.getElementById('rg-subtitulo');
   if(tituloGrupo) tituloGrupo.textContent = soEu ? 'Seu balanço' : 'Balanço do grupo';
-  if(subGrupo) subGrupo.textContent       = (soEu ? 'Só os seus números · ' : 'Todos do grupo · ') + getMesAtivo();
+  const alvoIds = membrosAlvo.map(m=>m.id);
+  const cg = incluiFixos ? comparar(pid=>alvoIds.includes(pid), totalGrupoGanho, totalGrupoDiario) : {ant:{nGanhos:0}, selG:'', selD:''};
+  if(subGrupo) subGrupo.textContent       = (soEu ? 'Só os seus números · ' : 'Todos do grupo · ') + getMesAtivo() + legendaComparacao(cg.ant.nGanhos > 0);
 
   const saldoGrupo = totalGrupoCaixa + totalGrupoGanho - totalGrupoDiario - totalGrupoFixo;
-  document.getElementById('rg-ganho').textContent      = fmt(totalGrupoGanho);
-  document.getElementById('rg-gasto-diario').textContent= fmt(totalGrupoDiario);
+  document.getElementById('rg-ganho').innerHTML       = fmt(totalGrupoGanho) + cg.selG;
+  document.getElementById('rg-gasto-diario').innerHTML = fmt(totalGrupoDiario) + cg.selD;
   document.getElementById('rg-fixo').textContent       = fmt(totalGrupoFixo);
   document.getElementById('rg-gasto-total').textContent= fmt(totalGrupoDiario+totalGrupoFixo);
   document.getElementById('rg-saldo').textContent      = fmtSigned(saldoGrupo);
@@ -3433,6 +3559,15 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
   line-height:1.5;
 }
 .alerta-venc strong{color:var(--orange);font-weight:600;}
+.alerta-venc.alerta-atrasada{background:var(--red-bg);border-color:rgba(239,68,68,0.45);margin-bottom:6px}
+.alerta-venc.alerta-atrasada strong{color:var(--red)}
+.previsao-mes{margin-top:8px;font-size:12px;color:var(--text2);line-height:1.5}
+.previsao-mes strong{color:var(--gold);font-weight:700}
+.desc-rapidas{display:flex;gap:6px;overflow-x:auto;margin:-2px 0 10px;padding-bottom:2px;scrollbar-width:none}
+.desc-rapidas::-webkit-scrollbar{display:none}
+.desc-rapida{flex-shrink:0;padding:6px 12px;border-radius:999px;border:1px solid var(--border2);background:var(--surface2);color:var(--text);font-size:12.5px;font-weight:500;cursor:pointer;white-space:nowrap}
+.desc-rapida:active{transform:scale(0.96)}
+.var-mes{font-size:11px;font-weight:600;margin-left:4px}
 .banner-plano{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 14px;border-radius:12px;font-size:12px;color:var(--text2);margin-bottom:10px;border:1px solid var(--border);line-height:1.4;}
 .banner-plano strong{color:var(--text1);}
 .banner-plano.free{background:var(--surface2);}
@@ -3939,6 +4074,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         <div class="saldo-valor" id="meu-saldo">R$ 0</div>
         <div class="mensagem-status" id="msg-status">Comece lançando uma entrada</div>
         <div id="saldo-comparacao" style="display:none;margin-top:8px;font-size:12px;font-weight:600;opacity:0.85"></div>
+        <div id="previsao-mes" class="previsao-mes" style="display:none"></div>
         <div id="caixa-linha" onclick="abrirEditarCaixa()" style="margin-top:12px;display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;background:rgba(212,175,55,0.12);border:1px solid rgba(212,175,55,0.35);font-size:13px;font-weight:600;color:var(--gold);cursor:pointer">
           💰 Em caixa: <strong id="caixa-valor">R$ 0,00</strong><span id="caixa-edit-ic" style="opacity:0.7">✏️</span>
         </div>
@@ -4452,6 +4588,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 
     <label class="modal-label">Descrição</label>
     <input type="text" class="modal-input" id="modal-desc" placeholder="Ex: corte cliente, almoço..."/>
+    <div id="modal-desc-rapidas" class="desc-rapidas" style="display:none"></div>
 
     <div id="modal-cats-wrap" style="display:none">
       <label class="modal-label">Categoria</label>
