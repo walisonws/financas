@@ -52,6 +52,8 @@ let _catMeta = {}; // overrides de emoji das categorias PADRÃO (grupos/{code}/c
 let _info = { plano:'free', validoAte:0 }; // dados de assinatura do grupo
 let _metaMensal = 0;
 let _cofrinho = null;
+let _cofreMovs = [];       // histórico do cofrinho: quem guardou/tirou (grupos/{code}/cofrinhoMovs)
+let _cofreVerTodas = false;
 let mesAtivoIdx  = now.getMonth();
 
 // ── CONFIGURAÇÕES COMERCIAIS ──────────────────────────────────────────────
@@ -537,6 +539,7 @@ function escutarDados(){
     const seen = new Set();
     membros = raw.filter(m=>{ if(seen.has(m.id)) return false; seen.add(m.id); return true; });
     renderNavMembros();
+    renderCofrinho(); // a divisão por pessoa depende da lista de membros
   });
   onValue(ref(db,`grupos/${grupoCode}/ganhos`), snap=>{
     _dados.ganhos = snap.val()
@@ -564,6 +567,12 @@ function escutarDados(){
   onValue(ref(db,`grupos/${grupoCode}/cofrinho`), snap=>{
     _cofrinho = snap.val() || null;
     renderTudo();
+  });
+  onValue(ref(db,`grupos/${grupoCode}/cofrinhoMovs`), snap=>{
+    _cofreMovs = snap.val()
+      ? Object.entries(snap.val()).map(([k,v])=>({...v, _key:k})).sort((a,b)=>(b.ts||0)-(a.ts||0))
+      : [];
+    if(typeof renderCofrinho === 'function') renderCofrinho();
   });
   onValue(ref(db,`grupos/${grupoCode}/historico`), snap=>{
     _dados.historico = snap.val()
@@ -1307,6 +1316,44 @@ function renderCofrinho(){
   const guardado = c.guardado || 0;
   const pct = Math.min(100, Math.round((guardado / c.alvo) * 100));
   const completo = guardado >= c.alvo;
+
+  // Parte de cada pessoa (só faz sentido com mais de um membro)
+  let partesHtml = '';
+  const semDono = cofreSemDono();
+  if(membros.length > 1){
+    const pp = c.porPessoa || {};
+    const chips = membros.map(m=>`
+      <div class="cofre-parte">
+        <span class="cofre-parte-dot" style="background:${m.cor||'var(--gold)'}"></span>
+        <span class="cofre-parte-nome">${esc(m.nome)}</span>
+        <strong>${fmt(pp[m.id]||0)}</strong>
+      </div>`).join('');
+    const semDonoHtml = semDono > 0.004 ? `
+      <div class="cofre-parte cofre-semdono" onclick="abrirCofreDeposito('atribuir')">
+        <span class="cofre-parte-dot" style="background:var(--text3)"></span>
+        <span class="cofre-parte-nome">Sem dono</span>
+        <strong>${fmt(semDono)}</strong>
+        <span class="cofre-dividir">dividir ›</span>
+      </div>` : '';
+    partesHtml = `<div class="cofre-partes">${chips}${semDonoHtml}</div>`;
+  }
+
+  // Últimas movimentações do cofrinho
+  let movsHtml = '';
+  if(_cofreMovs.length){
+    const lista = _cofreVerTodas ? _cofreMovs : _cofreMovs.slice(0,4);
+    movsHtml = `<div class="cofre-movs">` + lista.map(mv=>{
+      const d = new Date(mv.ts||0);
+      const data = d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+      const quem = mv.pid==='_semdono' ? 'Sem dono' : nomeDoMembro(mv.pid);
+      const txt = mv.tipo==='atribuir' ? `${esc(quem)} assumiu` : (mv.tipo==='tirar' ? `${esc(quem)} tirou` : `${esc(quem)} guardou`);
+      const cor = mv.tipo==='tirar' ? 'var(--red)' : (mv.tipo==='atribuir' ? 'var(--text2)' : 'var(--green)');
+      const sinal = mv.tipo==='tirar' ? '−' : (mv.tipo==='atribuir' ? '' : '+');
+      return `<div class="cofre-mov"><span class="cofre-mov-data">${data}</span><span class="cofre-mov-txt">${txt}</span><span style="color:${cor};font-weight:600">${sinal}${fmt(mv.valor)}</span></div>`;
+    }).join('') +
+    (_cofreMovs.length > 4 ? `<button class="cofre-vermais" onclick="toggleCofreMovs()">${_cofreVerTodas?'Ver menos':'Ver tudo ('+_cofreMovs.length+')'}</button>` : '') +
+    `</div>`;
+  }
   cont.innerHTML = `
     <div class="cofre-card">
       <div class="cofre-head">
@@ -1317,11 +1364,29 @@ function renderCofrinho(){
       <div class="cofre-vals"><strong>${fmt(guardado)}</strong> <span style="color:var(--text2)">de ${fmt(c.alvo)} · ${pct}%</span></div>
       <div class="cofre-bar"><div class="cofre-fill" style="width:${pct}%"></div></div>
       ${completo ? `<div class="cofre-ok">🎉 Meta atingida!</div>` : ''}
+      ${partesHtml}
       <div class="cofre-acoes">
         <button class="cofre-btn guardar" onclick="abrirCofreDeposito('guardar')">＋ Guardar</button>
         <button class="cofre-btn tirar" onclick="abrirCofreDeposito('tirar')">− Tirar</button>
       </div>
+      ${movsHtml}
     </div>`;
+}
+window.toggleCofreMovs = function(){ _cofreVerTodas = !_cofreVerTodas; renderCofrinho(); };
+
+// Nome de um membro pelo id (cai no próprio nome no modo individual)
+function nomeDoMembro(pid){
+  const m = membros.find(x=>x.id===pid);
+  if(m) return m.nome || 'Alguém';
+  if(pid===meuPerfil) return meuNome || 'Você';
+  return 'Alguém';
+}
+// Valor guardado antes de existir a divisão por pessoa (ou que ninguém assumiu)
+function cofreSemDono(){
+  const c = _cofrinho || {};
+  const pp = c.porPessoa || {};
+  const soma = Object.values(pp).reduce((a,b)=>a+(Number(b)||0),0);
+  return Math.max(0, Math.round(((c.guardado||0) - soma)*100)/100);
 }
 
 // Config (criar/editar) — emoji + nome + alvo (numpad próprio)
@@ -1361,8 +1426,9 @@ window.salvarCofrinho = async function(){
   const nome = (document.getElementById('modal-cofre-nome').value||'').trim() || 'Meu cofrinho';
   const alvo = _cofreAlvoCents/100;
   if(alvo<=0){ showToast('Defina um valor de meta','error'); return; }
-  const guardado = (_cofrinho && _cofrinho.guardado) ? _cofrinho.guardado : 0;
-  await set(ref(db,`grupos/${grupoCode}/cofrinho`), {nome, emoji:_cofreEmoji, alvo, guardado});
+  // update (e não set): só mexe em nome/emoji/meta. Assim não regrava um valor
+  // guardado desatualizado por cima de um depósito feito no outro celular.
+  await update(ref(db,`grupos/${grupoCode}/cofrinho`), {nome, emoji:_cofreEmoji, alvo});
   fecharCofreCfg();
   showToast('Cofrinho salvo! 🐷');
 };
@@ -1373,6 +1439,7 @@ window.apagarCofrinho = function(){
     textoBotao:'Apagar',
     onConfirm: async ()=>{
       await remove(ref(db,`grupos/${grupoCode}/cofrinho`));
+      await remove(ref(db,`grupos/${grupoCode}/cofrinhoMovs`));
       fecharCofreCfg();
       showToast('Cofrinho removido');
     }
@@ -1390,24 +1457,108 @@ window.numpadCofreDigit = function(d){ if(_cofreCents>=999999999) return; _cofre
 window.numpadCofreBack  = function(){ _cofreCents=Math.floor(_cofreCents/10); numpadCofreSync(); }
 window.numpadCofreClear = function(){ _cofreCents=0; numpadCofreSync(); }
 
+let _cofreQuem = null; // pid de quem está guardando/tirando ('_semdono' = parte sem dono)
+
+// Quem aparece pré-selecionado: a pessoa em foco na tela, senão eu
+function cofreQuemPadrao(){
+  if(membroAtivo && membroAtivo!=='todos' && membros.some(m=>m.id===membroAtivo)) return membroAtivo;
+  return meuPerfil;
+}
+function renderCofreQuem(){
+  const box = document.getElementById('cofre-quem');
+  if(!box) return;
+  // Modo individual: não precisa perguntar
+  if(membros.length <= 1){ box.style.display='none'; box.innerHTML=''; return; }
+  const pp = (_cofrinho && _cofrinho.porPessoa) || {};
+  let opcoes = membros.map(m=>({id:m.id, nome:m.nome, cor:m.cor, parte:pp[m.id]||0}));
+  if(_cofreModo==='tirar' && cofreSemDono() > 0.004){
+    opcoes.push({id:'_semdono', nome:'Sem dono', cor:'var(--text3)', parte:cofreSemDono()});
+  }
+  box.style.display='flex';
+  box.innerHTML = opcoes.map(o=>`
+    <button type="button" class="cofre-quem-op${o.id===_cofreQuem?' ativo':''}" onclick="selecionarCofreQuem('${o.id}')">
+      <span class="cofre-parte-dot" style="background:${o.cor||'var(--gold)'}"></span>
+      <span>${esc(o.nome)}</span>
+      ${_cofreModo!=='guardar' ? `<small>${fmt(o.parte)}</small>` : ''}
+    </button>`).join('');
+}
+window.selecionarCofreQuem = function(pid){ _cofreQuem = pid; renderCofreQuem(); };
+
 window.abrirCofreDeposito = function(modo){
-  _cofreModo = modo==='tirar' ? 'tirar' : 'guardar';
+  _cofreModo = (modo==='tirar' || modo==='atribuir') ? modo : 'guardar';
   _cofreCents = 0; numpadCofreSync();
-  document.getElementById('modal-cofre-dep-titulo').textContent =
-    _cofreModo==='tirar' ? '− Tirar do cofrinho' : '＋ Guardar no cofrinho';
+  _cofreQuem = cofreQuemPadrao();
+  const titulos = { guardar:'＋ Guardar no cofrinho', tirar:'− Tirar do cofrinho', atribuir:'Dividir o valor sem dono' };
+  const subs = {
+    guardar:'De quem é esse dinheiro?',
+    tirar:'De quem é o dinheiro que está saindo?',
+    atribuir:`Tem ${fmt(cofreSemDono())} guardado antes da divisão por pessoa. Escolha de quem é e quanto.`
+  };
+  document.getElementById('modal-cofre-dep-titulo').textContent = titulos[_cofreModo];
+  const sub = document.getElementById('modal-cofre-dep-sub');
+  sub.textContent = subs[_cofreModo];
+  sub.style.display = (membros.length > 1) ? 'block' : 'none';
+  renderCofreQuem();
   document.getElementById('modal-cofre-dep').classList.add('show');
 };
 window.fecharCofreDep = function(){ _fecharOverlay('modal-cofre-dep'); };
+
+let _cofreSalvando = false;
 window.confirmarCofreDeposito = async function(){
-  const val = _cofreCents/100;
+  if(_cofreSalvando) return; // evita toque duplo gravar duas vezes
+  const val = Math.round(_cofreCents)/100;
   if(val<=0){ showToast('Informe um valor','error'); return; }
-  const atual = (_cofrinho && _cofrinho.guardado) ? _cofrinho.guardado : 0;
-  let novo = _cofreModo==='tirar' ? atual - val : atual + val;
-  if(novo<0) novo = 0;
-  await update(ref(db,`grupos/${grupoCode}/cofrinho`), {guardado:novo});
+  const modo = _cofreModo;
+  const pid  = (membros.length > 1) ? _cofreQuem : meuPerfil;
+  if(!pid){ showToast('Escolha de quem é o dinheiro','error'); return; }
+
+  // Transação: o Firebase lê o valor ATUAL do servidor antes de somar.
+  // Se os dois celulares guardarem ao mesmo tempo, nenhum valor se perde.
+  let erro = null;
+  _cofreSalvando = true;
+  try {
+    const res = await runTransaction(ref(db,`grupos/${grupoCode}/cofrinho`), cur=>{
+      if(!cur) return cur;
+      erro = null;
+      const r2 = n => Math.round(n*100)/100;
+      const pp = cur.porPessoa || {};
+      const guardado = Number(cur.guardado)||0;
+      const somaPP = Object.values(pp).reduce((a,b)=>a+(Number(b)||0),0);
+      const semDono = Math.max(0, r2(guardado - somaPP));
+      if(modo==='guardar'){
+        pp[pid] = r2((Number(pp[pid])||0) + val);
+        cur.guardado = r2(guardado + val);
+      } else if(modo==='tirar'){
+        if(pid==='_semdono'){
+          if(val > semDono + 0.004){ erro = `Só tem ${fmt(semDono)} sem dono`; return; }
+        } else {
+          const parte = Number(pp[pid])||0;
+          if(val > parte + 0.004){ erro = `${nomeDoMembro(pid)} só tem ${fmt(parte)} no cofrinho`; return; }
+          pp[pid] = r2(parte - val);
+        }
+        cur.guardado = Math.max(0, r2(guardado - val));
+      } else { // atribuir: move da parte sem dono pra pessoa (total não muda)
+        if(pid==='_semdono'){ erro = 'Escolha uma pessoa'; return; }
+        if(val > semDono + 0.004){ erro = `Só tem ${fmt(semDono)} sem dono`; return; }
+        pp[pid] = r2((Number(pp[pid])||0) + val);
+      }
+      cur.porPessoa = pp;
+      return cur;
+    });
+    if(!res.committed){ showToast(erro || 'Não deu pra salvar, tente de novo','error'); return; }
+    // Registro de quem fez o quê (histórico do cofrinho)
+    await push(ref(db,`grupos/${grupoCode}/cofrinhoMovs`), { pid, valor:val, tipo:modo, ts:Date.now(), por:meuPerfil });
+  } catch(e){
+    console.error(e);
+    showToast('Erro ao salvar no cofrinho','error');
+    return;
+  } finally {
+    _cofreSalvando = false;
+  }
   fecharCofreDep();
   haptic(40);
-  showToast(_cofreModo==='tirar' ? 'Retirado do cofrinho' : 'Guardado no cofrinho! 🐷');
+  const msgs = { guardar:'Guardado no cofrinho! 🐷', tirar:'Retirado do cofrinho', atribuir:'Valor dividido ✔' };
+  showToast(msgs[modo]);
 };
 
 // ── MODAL RECEBI/GASTEI (com modo edição) ──────────────────────────────────
@@ -2895,6 +3046,22 @@ html[data-theme="light"]{
 .cofre-btn.guardar{border-color:var(--gold-border);color:var(--gold);background:var(--gold-bg)}
 .cofre-btn.tirar{color:var(--text2)}
 .cofre-btn:active{transform:scale(0.97);opacity:0.9}
+.cofre-partes{display:flex;flex-direction:column;gap:6px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)}
+.cofre-parte{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text)}
+.cofre-parte strong{margin-left:auto;font-weight:600}
+.cofre-parte-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.cofre-parte-nome{color:var(--text2)}
+.cofre-semdono{cursor:pointer}
+.cofre-dividir{font-size:12px;color:var(--gold);font-weight:600}
+.cofre-movs{margin-top:12px;padding-top:10px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:6px}
+.cofre-mov{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2)}
+.cofre-mov-data{color:var(--text3);min-width:38px}
+.cofre-mov-txt{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cofre-vermais{background:transparent;border:none;color:var(--gold);font-size:12px;font-weight:600;padding:4px 0 0;cursor:pointer;text-align:left}
+.cofre-quem{gap:8px;flex-wrap:wrap;margin:4px 0 12px}
+.cofre-quem-op{flex:1;min-width:90px;display:flex;align-items:center;justify-content:center;gap:6px;padding:10px;border-radius:12px;border:1px solid var(--border2);background:var(--surface2);color:var(--text);font-size:14px;font-weight:600;cursor:pointer}
+.cofre-quem-op small{color:var(--text3);font-weight:500;font-size:11px}
+.cofre-quem-op.ativo{border-color:var(--gold);background:var(--gold-bg);color:var(--gold)}
 .cofre-novo:active{transform:scale(0.98)}
 .cofre-cfg:active{transform:scale(0.85)}
 .tema-pill:active{transform:scale(0.97)}
@@ -4180,6 +4347,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
   <div class="modal-card">
     <div class="modal-handle"></div>
     <div class="modal-titulo" style="color:var(--gold)" id="modal-cofre-dep-titulo">＋ Guardar no cofrinho</div>
+    <div class="modal-sub" id="modal-cofre-dep-sub" style="display:none"></div>
+    <div id="cofre-quem" class="cofre-quem" style="display:none"></div>
     <div class="numpad-display">R$ <span id="numpad-cofre-val">0,00</span></div>
     <div class="numpad-grid">
       <button class="numpad-key" onclick="numpadCofreDigit('1')">1</button>
