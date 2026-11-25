@@ -568,6 +568,11 @@ function escutarDados(){
     _cofrinho = snap.val() || null;
     renderTudo();
   });
+  onValue(ref(db,`grupos/${grupoCode}/limitesCat`), snap=>{
+    _limitesCat = {};
+    Object.values(snap.val()||{}).forEach(v=>{ if(v && v.cat && Number(v.valor)>0) _limitesCat[v.cat] = Number(v.valor); });
+    if(document.getElementById('sec-resumo')?.classList.contains('active')) renderResumo();
+  });
   onValue(ref(db,`grupos/${grupoCode}/cofrinhoMovs`), snap=>{
     _cofreMovs = snap.val()
       ? Object.entries(snap.val()).map(([k,v])=>({...v, _key:k})).sort((a,b)=>(b.ts||0)-(a.ts||0))
@@ -1094,7 +1099,18 @@ window.toggleTodasMovimentacoes = function(){
   cardTodas.style.display = isVisibleTodas ? 'none' : 'block';
 
   if(!isVisibleTodas) renderTodasMovimentacoes();
+  else { // voltando: limpa a busca pra próxima vez abrir a lista completa
+    _buscaTx = '';
+    const inp = document.getElementById('busca-tx-input'); if(inp) inp.value = '';
+  }
 }
+
+// BUSCA na lista completa — procura na descrição, categoria e nome da pessoa
+let _buscaTx = '';
+window.buscarTx = function(q){
+  _buscaTx = String(q||'');
+  renderTodasMovimentacoes();
+};
 
 function renderTodasMovimentacoes(){
   const target = membroAtivo || meuPerfil;
@@ -1106,13 +1122,36 @@ function renderTodasMovimentacoes(){
   const ganhos = filtrarMes(_dados.ganhos).filter(filtroMembro);
   const gastos = filtrarMes(_dados.gastos).filter(filtroMembro);
 
-  const tx = [
+  let tx = [
     ...ganhos.map(g=>({...g, _tipo:'in', _label:g.desc||'Ganho'})),
     ...gastos.map(g=>({...g, _tipo:'out', _label:g.nome||'Gasto'}))
   ].sort((a,b)=>(b.ts||0)-(a.ts||0));
 
+  // Busca
+  const termo = normalizarTxt(_buscaTx.trim());
+  const resumoEl = document.getElementById('busca-tx-resumo');
+  const limparEl = document.getElementById('busca-tx-limpar');
+  if(limparEl) limparEl.style.display = termo ? 'block' : 'none';
+  if(termo){
+    tx = tx.filter(t=>{
+      const dono = membros.find(mm=>mm.id===t.pid);
+      return normalizarTxt(`${t._label} ${t.cat||''} ${dono?dono.nome:''}`).includes(termo);
+    });
+    const tIn  = tx.filter(t=>t._tipo==='in').reduce((a,b)=>a+(b.valor||0),0);
+    const tOut = tx.filter(t=>t._tipo==='out').reduce((a,b)=>a+(b.valor||0),0);
+    if(resumoEl){
+      const partes = [];
+      if(tIn)  partes.push(`entradas <strong style="color:var(--green)">${fmt(tIn)}</strong>`);
+      if(tOut) partes.push(`gastos <strong style="color:var(--red)">${fmt(tOut)}</strong>`);
+      resumoEl.innerHTML = `${tx.length} resultado${tx.length!==1?'s':''}${partes.length?' · '+partes.join(' · '):''}`;
+      resumoEl.style.display = 'block';
+    }
+  } else if(resumoEl){
+    resumoEl.style.display = 'none';
+  }
+
   if(tx.length === 0){
-    document.getElementById('todas-tx-lista').innerHTML = '<div class="empty" style="padding:16px;text-align:center;color:var(--text3)">Nenhuma movimentação neste mês</div>';
+    document.getElementById('todas-tx-lista').innerHTML = `<div class="empty" style="padding:16px;text-align:center;color:var(--text3)">${termo ? 'Nada encontrado com “'+esc(_buscaTx.trim())+'”' : 'Nenhuma movimentação neste mês'}</div>`;
     return;
   }
 
@@ -2013,6 +2052,8 @@ window.confirmarModal = async function(){
   } else {
     if(!desc){ showToast('Descreva o gasto','error'); return; }
     const ts = _modalDataTs || Date.now();
+    // Calcula o aviso de limite ANTES do lançamento entrar nos dados
+    if(getMesDeTs(ts) === getMesAtivo()) avisarLimiteCat(_modalCat, val);
     await push(ref(db,`grupos/${grupoCode}/gastos`),{
       pid:meuPerfil, nome:desc, valor:val, cat:_modalCat,
       data:getDataDeTs(ts), mes:getMesDeTs(ts), ts:ts, criadoEm:Date.now()
@@ -2335,6 +2376,8 @@ function renderResumoSolo(){
   const gastosChart = filtrarPorPeriodo(_dados.gastos, p).filter(g=>g.pid===meuPerfil);
   const fixosChart  = p==='mes' ? filtrarMes(_dados.fixos).filter(f=>f.pid===meuPerfil && f.pago===true) : [];
   renderPizzaChart('resumo-pizza-chart-solo', gastosChart, fixosChart);
+  renderLimitesCat('rs-limites');
+  renderDiasSemana('rs-dias-semana', pid=>pid===meuPerfil);
 }
 
 function renderResumoGrupo(){
@@ -2403,6 +2446,193 @@ function renderResumoGrupo(){
   const gastosChart = filtrarPorPeriodo(_dados.gastos, p).filter(g=>membroAtivo==='todos'||g.pid===membroAtivo);
   const fixosChart  = incluiFixos ? filtrarMes(_dados.fixos).filter(f=>f.pago===true&&(membroAtivo==='todos'||f.pid===membroAtivo)) : [];
   renderPizzaChart('resumo-pizza-chart-grupo', gastosChart, fixosChart);
+  renderLimitesCat('rg-limites');
+  renderDiasSemana('rg-dias-semana', pid=>alvoIds.includes(pid), soEu ? null : membrosAlvo);
+}
+
+// ── MELHORES DIAS DA SEMANA ─────────────────────────────────────────────────
+// Média de entrada por dia da semana, nos últimos 90 dias. A média é por dia
+// TRABALHADO (só conta as datas que tiveram entrada), pra folga não puxar pra baixo.
+const DIAS_SEMANA = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+function mediasPorDiaSemana(pidFn){
+  const desde = Date.now() - 90*86400000;
+  const porData = {}; // 'aaaa-mm-dd' -> total
+  (_dados.ganhos||[]).forEach(g=>{
+    if(!g.ts || g.ts < desde || !pidFn(g.pid) || _pendingDeletes.has(g._key)) return;
+    const d = new Date(g.ts);
+    const k = d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate();
+    porData[k] = porData[k] || { dow:d.getDay(), total:0 };
+    porData[k].total += (g.valor||0);
+  });
+  const soma = Array(7).fill(0), dias = Array(7).fill(0);
+  Object.values(porData).forEach(x=>{ soma[x.dow]+=x.total; dias[x.dow]++; });
+  return { medias: soma.map((s,i)=> dias[i] ? s/dias[i] : 0), dias, totalDatas: Object.keys(porData).length };
+}
+function renderDiasSemana(elId, pidFn, porPessoa){
+  const el = document.getElementById(elId);
+  if(!el) return;
+  const { medias, dias, totalDatas } = mediasPorDiaSemana(pidFn);
+  if(totalDatas < 10){ // pouca informação ainda: a média enganaria
+    el.innerHTML = '';
+    return;
+  }
+  const max = Math.max(...medias, 1);
+  const melhor = medias.indexOf(Math.max(...medias));
+  // Ordem de segunda a domingo
+  const ordem = [1,2,3,4,5,6,0];
+  const linhas = ordem.map(i=>{
+    const m = medias[i];
+    const destaque = i===melhor;
+    return `<div class="dsem-row${destaque?' melhor':''}">
+      <span class="dsem-dia">${DIAS_SEMANA[i].slice(0,3)}</span>
+      <div class="dsem-bar-wrap"><div class="dsem-bar" style="width:${Math.round(m/max*100)}%"></div></div>
+      <span class="dsem-val">${dias[i] ? fmt(m) : '—'}</span>
+    </div>`;
+  }).join('');
+  // No modo Todos, mostra também o melhor dia de cada um
+  let porPessoaHtml = '';
+  if(porPessoa && porPessoa.length > 1){
+    porPessoaHtml = '<div class="dsem-pessoas">' + porPessoa.map(m=>{
+      const r = mediasPorDiaSemana(pid=>pid===m.id);
+      if(r.totalDatas < 5) return '';
+      const b = r.medias.indexOf(Math.max(...r.medias));
+      return `<div><span class="cofre-parte-dot" style="background:${m.cor||'var(--gold)'};display:inline-block;margin-right:6px"></span>${esc(m.nome)}: melhor dia é <strong>${DIAS_SEMANA[b].toLowerCase()}</strong> (${fmt(r.medias[b])})</div>`;
+    }).join('') + '</div>';
+  }
+  el.innerHTML = `<div class="card dsem-card">
+    <div class="card-title">📅 Melhores dias da semana</div>
+    <div class="dsem-sub">Média de entrada por dia trabalhado · últimos 90 dias</div>
+    ${linhas}
+    <div class="dsem-dica">🏆 ${DIAS_SEMANA[melhor]} é o dia mais forte, com média de <strong>${fmt(medias[melhor])}</strong></div>
+    ${porPessoaHtml}
+  </div>`;
+}
+
+// ── LIMITE POR CATEGORIA ────────────────────────────────────────────────────
+// Guardado no Firebase (grupos/{code}/limitesCat/{categoria} = valor), então vale
+// pros dois celulares. O gasto conta o casal inteiro (diários + fixos pagos do mês).
+let _limitesCat = {};
+function gastoCatMes(cat){
+  const g = filtrarMes(_dados.gastos).filter(x=>(x.cat||'Outros')===cat).reduce((a,b)=>a+(b.valor||0),0);
+  const f = filtrarMes(_dados.fixos).filter(x=>x.pago===true && (x.cat||'Outros')===cat).reduce((a,b)=>a+(b.valor||0),0);
+  return g + f;
+}
+function renderLimitesCat(elId){
+  const el = document.getElementById(elId);
+  if(!el) return;
+  const allCats = getAllCats();
+  const itens = Object.entries(_limitesCat||{}).filter(([,v])=>Number(v)>0);
+  const linhas = itens.map(([cat, lim])=>{
+    const info = allCats[cat] || {emoji:'📦', color:'#6b7280'};
+    const gasto = gastoCatMes(cat);
+    const pct = Math.round(gasto / lim * 100);
+    const cor = pct>=100 ? 'var(--red)' : pct>=80 ? 'var(--orange)' : 'var(--green)';
+    const txt = pct>=100 ? `estourou ${fmt(gasto-lim)}` : `sobram ${fmt(lim-gasto)}`;
+    return `<div class="lim-row" data-cat="${esc(cat)}" onclick="abrirLimiteCat(this.dataset.cat)">
+      <div class="lim-top">
+        <span>${esc(info.emoji)} ${esc(cat)}</span>
+        <span style="color:${cor};font-weight:700">${fmt(gasto)} <small style="color:var(--text3);font-weight:500">de ${fmt(lim)}</small></span>
+      </div>
+      <div class="lim-bar-wrap"><div class="lim-bar" style="width:${Math.min(pct,100)}%;background:${cor}"></div></div>
+      <div class="lim-txt" style="color:${cor}">${pct}% · ${txt}</div>
+    </div>`;
+  }).join('');
+  el.innerHTML = `<div class="card lim-card">
+    <div class="card-title" style="display:flex;align-items:center">🎯 Limites por categoria
+      <button class="lim-add" onclick="abrirLimiteCat()">＋ Limite</button>
+    </div>
+    ${linhas || '<div class="dsem-sub" style="margin:4px 0 0">Ex.: Alimentação até R$ 800 no mês. Vale pro casal todo.</div>'}
+  </div>`;
+}
+let _limiteCatSel = null;
+window.abrirLimiteCat = function(cat){
+  const allCats = getAllCats();
+  _limiteCatSel = cat || null;
+  const box = document.getElementById('lim-cats');
+  box.innerHTML = Object.entries(allCats).map(([nome, info])=>
+    `<button type="button" class="cofre-quem-op lim-cat-op${nome===_limiteCatSel?' ativo':''}" data-cat="${esc(nome)}" onclick="selecionarLimiteCat(this.dataset.cat)">${esc(info.emoji)} ${esc(nome)}</button>`
+  ).join('');
+  const inp = document.getElementById('lim-valor');
+  inp.value = (cat && _limitesCat[cat]) ? String(_limitesCat[cat]).replace('.',',') : '';
+  document.getElementById('lim-remover').style.display = (cat && _limitesCat[cat]) ? 'block' : 'none';
+  document.getElementById('modal-limite').classList.add('show');
+};
+window.selecionarLimiteCat = function(cat){
+  _limiteCatSel = cat;
+  document.querySelectorAll('#lim-cats .lim-cat-op').forEach(b=>b.classList.toggle('ativo', b.dataset.cat===cat));
+  const inp = document.getElementById('lim-valor');
+  inp.value = _limitesCat[cat] ? String(_limitesCat[cat]).replace('.',',') : '';
+  document.getElementById('lim-remover').style.display = _limitesCat[cat] ? 'block' : 'none';
+};
+window.fecharLimiteCat = function(){ _fecharOverlay('modal-limite'); };
+window.salvarLimiteCat = async function(){
+  if(!_limiteCatSel){ showToast('Escolha a categoria','error'); return; }
+  const v = parseFloat(String(document.getElementById('lim-valor').value||'').replace(/\./g,'').replace(',','.'));
+  if(isNaN(v) || v <= 0){ showToast('Digite um valor válido','error'); return; }
+  await set(ref(db,`grupos/${grupoCode}/limitesCat/${chaveLimite(_limiteCatSel)}`), { cat:_limiteCatSel, valor:Math.round(v*100)/100 });
+  fecharLimiteCat();
+  showToast('Limite salvo! 🎯');
+};
+// Chave segura pro Firebase (não aceita . # $ [ ] /)
+function chaveLimite(cat){ return String(cat).replace(/[.#$\[\]\/]/g,'_'); }
+window.removerLimiteCat = async function(){
+  if(!_limiteCatSel) return;
+  await remove(ref(db,`grupos/${grupoCode}/limitesCat/${chaveLimite(_limiteCatSel)}`));
+  fecharLimiteCat();
+  showToast('Limite removido');
+};
+// ── EXPORTAR O MÊS (planilha CSV que abre no Excel / Google Planilhas) ──────
+window.exportarPlanilha = async function(){
+  const nomeDe = pid => { const m = membros.find(x=>x.id===pid); return m ? m.nome : (pid===meuPerfil ? (meuNome||'') : ''); };
+  const dataDe = ts => ts ? new Date(ts).toLocaleDateString('pt-BR') : '';
+  const linhas = [];
+  filtrarMes(_dados.ganhos).forEach(g=>linhas.push({ ts:g.ts||0, data:dataDe(g.ts), tipo:'Entrada', pessoa:nomeDe(g.pid), desc:g.desc||'Ganho', cat:'', valor:g.valor||0, sit:'' }));
+  filtrarMes(_dados.gastos).forEach(g=>linhas.push({ ts:g.ts||0, data:dataDe(g.ts), tipo:'Gasto', pessoa:nomeDe(g.pid), desc:g.nome||'Gasto', cat:g.cat||'Outros', valor:-(g.valor||0), sit:'' }));
+  filtrarMes(_dados.fixos).forEach(f=>linhas.push({ ts:0, data:f.dia ? `dia ${f.dia}` : '', tipo:'Conta fixa', pessoa:nomeDe(f.pid), desc:f.nome||'Conta', cat:f.cat||'', valor:-(f.valor||0), sit:f.pago ? 'Paga' : 'A pagar' }));
+  if(!linhas.length){ showToast('Nada lançado neste mês','error'); return; }
+  linhas.sort((a,b)=> (a.ts||9e15) - (b.ts||9e15));
+
+  // Formato brasileiro: separador ";" e vírgula decimal (o Excel em português abre certinho)
+  const cel = v => { const s = String(v==null?'':v); return /[";\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s; };
+  const num = n => (Math.round(n*100)/100).toFixed(2).replace('.',',');
+  const cab = ['Data','Tipo','Pessoa','Descrição','Categoria','Valor (R$)','Situação'];
+  const corpo = linhas.map(l=>[l.data,l.tipo,l.pessoa,l.desc,l.cat,num(l.valor),l.sit].map(cel).join(';'));
+  const tIn  = linhas.filter(l=>l.tipo==='Entrada').reduce((a,b)=>a+b.valor,0);
+  const tOut = linhas.filter(l=>l.tipo==='Gasto' || (l.tipo==='Conta fixa' && l.sit==='Paga')).reduce((a,b)=>a+b.valor,0);
+  const totais = ['', ['','','','Total de entradas','',num(tIn),''].join(';'), ['','','','Total gasto (inclui fixas pagas)','',num(tOut),''].join(';')];
+  const csv = '﻿' + [cab.join(';'), ...corpo, ...totais].join('\r\n');
+
+  const arquivo = `grana-pro-${mesSlugDe(getMesAtivo())}.csv`;
+  const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
+  // No celular, abre o menu de compartilhar (salvar em Arquivos, mandar no WhatsApp...)
+  try{
+    const file = new File([blob], arquivo, { type:'text/csv' });
+    if(navigator.canShare && navigator.canShare({ files:[file] }) && /Android|iPhone|iPad/i.test(navigator.userAgent)){
+      await navigator.share({ files:[file], title:`Grana Pro — ${getMesAtivo()}` });
+      return;
+    }
+  }catch(e){ if(e && e.name==='AbortError') return; }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = arquivo;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+  showToast('Planilha baixada! 📥');
+};
+
+// Depois de lançar um gasto: avisa se a categoria passou de 80% ou estourou
+function avisarLimiteCat(cat, valorNovo){
+  const lim = Number((_limitesCat||{})[cat]);
+  if(!(lim > 0)) return;
+  // o lançamento pode ainda não ter chegado pelo onValue: soma na mão se faltar
+  const antes = gastoCatMes(cat);
+  const depois = antes + valorNovo;
+  const pctAntes = antes / lim * 100, pctDepois = depois / lim * 100;
+  if(pctDepois >= 100 && pctAntes < 100){
+    setTimeout(()=>showToast(`🚨 ${cat} estourou o limite de ${fmt(lim)}`,'error'), 1200);
+  } else if(pctDepois >= 80 && pctAntes < 80){
+    setTimeout(()=>showToast(`⚠️ ${cat} já usou ${Math.round(pctDepois)}% do limite`,'error'), 1200);
+  }
 }
 
 // ── BARRA BALANÇO (Ganhou × Gastou × Sobrou) ──────────────────────────────
@@ -3568,6 +3798,32 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .desc-rapida{flex-shrink:0;padding:6px 12px;border-radius:999px;border:1px solid var(--border2);background:var(--surface2);color:var(--text);font-size:12.5px;font-weight:500;cursor:pointer;white-space:nowrap}
 .desc-rapida:active{transform:scale(0.96)}
 .var-mes{font-size:11px;font-weight:600;margin-left:4px}
+.dsem-card,.lim-card{margin-top:12px}
+.dsem-sub{font-size:11.5px;color:var(--text3);margin:-4px 0 10px}
+.dsem-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12.5px;color:var(--text2)}
+.dsem-dia{width:30px;flex-shrink:0}
+.dsem-bar-wrap{flex:1;height:8px;border-radius:5px;background:var(--surface3);overflow:hidden}
+.dsem-bar{height:100%;border-radius:5px;background:var(--gold-dark)}
+.dsem-val{width:88px;text-align:right;flex-shrink:0;font-weight:600;color:var(--text)}
+.dsem-row.melhor .dsem-dia{color:var(--gold);font-weight:700}
+.dsem-row.melhor .dsem-bar{background:linear-gradient(90deg,var(--gold-light),var(--gold))}
+.dsem-dica{margin-top:10px;font-size:12.5px;color:var(--text2)}
+.dsem-dica strong{color:var(--gold)}
+.dsem-pessoas{margin-top:8px;padding-top:8px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text2)}
+.dsem-pessoas strong{color:var(--text)}
+.lim-add{margin-left:auto;background:var(--gold-bg);border:1px solid var(--gold-border);color:var(--gold);border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0}
+.lim-row{padding:8px 0;border-top:1px solid var(--border);cursor:pointer}
+.lim-row:first-of-type{border-top:none}
+.lim-top{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;color:var(--text);margin-bottom:6px}
+.lim-bar-wrap{height:8px;border-radius:5px;background:var(--surface3);overflow:hidden}
+.lim-bar{height:100%;border-radius:5px;transition:width .5s ease}
+.lim-txt{font-size:11px;margin-top:4px;font-weight:600}
+.lim-cat-op{flex:0 0 auto;min-width:0;font-size:13px;padding:8px 10px}
+.busca-tx{display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border2);border-radius:12px;padding:0 12px;margin-bottom:10px}
+.busca-tx input{flex:1;background:transparent;border:none;outline:none;color:var(--text);font-size:14px;padding:11px 0;font-family:inherit}
+.busca-tx button{background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:4px}
+.busca-resumo{font-size:12px;color:var(--text2);margin:-4px 2px 10px}
+.busca-resumo strong{font-weight:700}
 .banner-plano{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 14px;border-radius:12px;font-size:12px;color:var(--text2);margin-bottom:10px;border:1px solid var(--border);line-height:1.4;}
 .banner-plano strong{color:var(--text1);}
 .banner-plano.free{background:var(--surface2);}
@@ -4170,6 +4426,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
       <!-- TODAS MOVIMENTAÇÕES (expandido) -->
       <div id="card-todas-tx" style="display:none">
         <div class="section-titulo">Todas as movimentações do mês <button class="expandir-btn" onclick="toggleTodasMovimentacoes()" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:12px;margin-left:auto">Voltar</button></div>
+        <div class="busca-tx">
+          <span>🔎</span>
+          <input type="search" id="busca-tx-input" placeholder="Buscar: gasolina, mercado, corte..." oninput="buscarTx(this.value)" autocomplete="off"/>
+          <button id="busca-tx-limpar" onclick="buscarTx('');document.getElementById('busca-tx-input').value=''" style="display:none" aria-label="Limpar busca">✕</button>
+        </div>
+        <div id="busca-tx-resumo" class="busca-resumo" style="display:none"></div>
         <div class="tx-card">
           <div id="todas-tx-lista"></div>
         </div>
@@ -4250,9 +4512,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         </div>
 
         <div id="resumo-pizza-chart-solo"></div>
+        <div id="rs-limites"></div>
+        <div id="rs-dias-semana"></div>
 
         <button class="btn-fechar" id="rs-btn-fechar" onclick="fecharMes()">💾 Arquivar mês no histórico</button>
         <button class="btn-fechar" style="background:var(--surface2);color:var(--text2);margin-top:6px" onclick="compartilharResumo()">📤 Compartilhar resumo</button>
+        <button class="btn-fechar" style="background:var(--surface2);color:var(--text2);margin-top:6px" onclick="exportarPlanilha()">📥 Baixar planilha do mês</button>
         <button class="btn-sair"   onclick="desconectar()">Sair da conta</button>
       </div>
 
@@ -4291,8 +4556,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         <div id="resumo-membros-lista"></div>
 
         <div id="resumo-pizza-chart-grupo"></div>
+        <div id="rg-limites"></div>
+        <div id="rg-dias-semana"></div>
 
         <button class="btn-fechar" onclick="fecharMes()">💾 Arquivar mês no histórico</button>
+        <button class="btn-fechar" style="background:var(--surface2);color:var(--text2);margin-top:6px" onclick="exportarPlanilha()">📥 Baixar planilha do mês</button>
         <button class="btn-sair"   onclick="desconectar()">Sair da conta</button>
       </div>
 
@@ -4475,6 +4743,23 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
     <div class="modal-actions">
       <button class="modal-btn modal-btn-cancel" onclick="fecharCofreCfg()">Cancelar</button>
       <button class="modal-btn" style="background:linear-gradient(135deg,#f0c84a,#d4af37);color:#0a0800" onclick="salvarCofrinho()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-limite" onclick="if(event.target===this)fecharLimiteCat()">
+  <div class="modal-card">
+    <div class="modal-handle"></div>
+    <div class="modal-titulo" style="color:var(--gold)">🎯 Limite por categoria</div>
+    <div class="modal-sub">Quanto o casal pode gastar nessa categoria por mês</div>
+    <label class="modal-label">Categoria</label>
+    <div id="lim-cats" class="cofre-quem" style="display:flex"></div>
+    <label class="modal-label">Limite do mês (R$)</label>
+    <input type="text" inputmode="decimal" class="modal-input" id="lim-valor" placeholder="Ex: 800"/>
+    <button id="lim-remover" onclick="removerLimiteCat()" style="display:none;width:100%;background:transparent;border:none;color:var(--red);font-size:13px;padding:8px;cursor:pointer;margin-top:6px">🗑 Remover limite</button>
+    <div class="modal-actions">
+      <button class="modal-btn modal-btn-cancel" onclick="fecharLimiteCat()">Cancelar</button>
+      <button class="modal-btn" style="background:linear-gradient(135deg,#f0c84a,#d4af37);color:#0a0800" onclick="salvarLimiteCat()">Salvar</button>
     </div>
   </div>
 </div>
